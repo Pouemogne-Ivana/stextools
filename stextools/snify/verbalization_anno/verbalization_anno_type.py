@@ -41,10 +41,10 @@ from stextools.utils.json_iter import json_iter
 
 # add
 original_get_content= Document.get_content
-
+#monkey-patching 
 def _get_content_utf8_safe(self):
     if self._content is None:
-        self._content= self.path.read_text(encoding= "utf-8")
+        self._content=self.path.read_text(encoding= "utf-8")
     return self._content
 Document.get_content= _get_content_utf8_safe
 
@@ -52,7 +52,7 @@ DEFAULT_LANGUAGE = "en"
 Language_pos: dict[str, dict[str, Optional[str]]] = {"en": {"TO":None, "IN": None, "JJ": ":A", "RB": ":A", "NN":":N", "NNS":":N", "VB":":V", "VBD":":V",},
                                                      "de":{"ADP": None, "ADJ": ":A", "ADV": ":A", "NOUN": ":N", "PROPN": ":N", "VERB": ":V", "AUX":":V",},
                                                        } #a dictionary of dictionaries of tags in diffrent languages
-Language_prepositions: dict[str, list[str]]= {"en": ["for", "drom", "at", "of", "to","with"], "de":["für", "von", "bei", "zu", "mit","auf"],}
+Language_prepositions: dict[str, list[str]]= {"en": ["for", "from", "at", "of", "to","with"], "de":["für", "von", "bei", "zu", "mit","auf"],}
 
 
 @functools.cache
@@ -66,30 +66,30 @@ def get_document_language(document: Document)->str:
     if lang:
         return lang
 
-    path= str(getattr(document, "path", ""))
+    path= str(getattr(document, "path", " "))
     match= re.search(r"\.([a-z]{2,3})\.tex$", path)
     if match:
         return match.group(1)
     return DEFAULT_LANGUAGE
 
 
-def pos_tag_for_language(tokens: list[str], lang:str)-> list[tuple[str, str]]:
+def pos_tag_for_language(tokens: list[str], language:str)-> list[tuple[str, str]]:
     #tokenize and tag words for the given language
-    if lang=="en":
+    if language=="en":
         return nltk.pos_tag(tokens)
     try:
         import spacy
         model_name= {"de": "de_core_news_sm",
-                     "zhs": "zhs_core_news_sm",}.get(lang)
+                     "zhs": "zhs_core_news_sm",}.get(language)
         if model_name is None:
-            raise OSError(f"no confingurated spaCy model for lang={lang!r}")
+            raise OSError(f"no confingurated spaCy model for lang={language!r}")
 
         nlp= get_spacy_pipeline(model_name)
-        Doc= nlp("".join(tokens))
+        Doc= nlp(" ".join(tokens))
         return [(t.text, t.pos_) for t in Doc] # extract (word, tag) for each token
     except Exception as e:
         interface.write_text( f"\nno part of speech tagger available for "
-                             f"lang={lang!r} ({e}); falling back to the english tagger, "
+                             f"lang={language!r} ({e}); falling back to the english tagger, "
                              f"results may be poor. \n")
         return nltk.pos_tag(tokens)
 
@@ -97,37 +97,144 @@ def get_spacy_pipeline(model_name: str):
     import spacy
     return spacy.load( model_name)
 
-def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_name:str, num_args: int, form: Optional[str], lang: str, )-> list[str]:
+def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_name:str, num_args: int, form: Optional[str], source_language:str, language: str, displayed_name:str, document:str, source_document_path:str)-> list[str]:
     form= form or ""
-    pos_map= Language_pos.get( lang, Language_pos[DEFAULT_LANGUAGE])
-    prepositions= Language_prepositions.get(lang, Language_prepositions[DEFAULT_LANGUAGE])
+    if not language:
+        language= DEFAULT_LANGUAGE
+
+    pos_map= Language_pos.get( language, Language_pos[DEFAULT_LANGUAGE])
+    prepositions= Language_prepositions.get(language, Language_prepositions[DEFAULT_LANGUAGE])
 
     prep=""
     match_name= None
     tags_name: list[tuple[str, str]] = []
+    suggestions: list[str]= []
+    if kind=="definiendum":
+        match=re.search(r'\\definiendum\{([^}]*)\}\{([^}]*)\}',document, re.DOTALL)
+        match_name=re.sub(r'\s+', ' ', match.group(1)).strip()
+        
+        if displayed_name:
+            tokens_name= nltk.word_tokenize(displayed_name)
+            tags_name=pos_tag_for_language(tokens_name, language)
+            
+            converted=[]
+            for word, pos in tags_name:
+                tag= pos_map.get(pos, " ")
+                if tag is None:
+                    continue
+                converted.append((word, tag))
+            
+            #suggestion 1
+            suggestion = "#1"
+            for word,tag in converted:
+                suggestion += f' {word }{tag}'       
+            suggestions.append(suggestion.strip())
 
-    if kind== "symdef":
+            #suggestion 2
+            suggestion=""
+
+            for word,tag in converted:
+                suggestion += f'{word }{tag} '
+            
+            for word, pos_name in tags_name:
+                if pos_name in ("ADP", "IN", "TO") : 
+                    suggestion+= f'{word} '
+                else:
+                    suggestion+= "" +prep+ ""
+            suggestion+="#1"
+            if suggestion.strip() not in suggestions:
+                suggestions.append(suggestion.strip())
+
+    if kind== "symdecl":
+        if displayed_name:
+            tokens_name= nltk.word_tokenize(displayed_name)
+            tags_name=pos_tag_for_language(tokens_name, language)
+            
+            converted=[]
+            for word, pos in tags_name:
+                tag= pos_map.get(pos, " ")
+                if tag is None:
+                    continue
+                converted.append((word, tag))
+                    
+        match= re.search(r'\\symdecl\*?\{([^}]*)\}', document)
+        if not match:
+            return None
+
+        displayed_name= match.group(1)
+        #suggestion 1
+        suggestion = "#1"
+        for word,tag in converted:
+            suggestion += f' {word }{tag}'       
+        suggestions.append(suggestion.strip())
+
+        #suggestion 2
+        suggestion=""
+
+        for word,tag in converted:
+            suggestion += f'{word }{tag} '
+        
+        for word, pos_name in tags_name:
+            if pos_name in ("ADP", "IN", "TO") : 
+                suggestion+= f'{word} '
+            else:
+                suggestion+= "" +prep+ ""
+        suggestion+="#1"
+        if suggestion.strip() not in suggestions:
+            suggestions.append(suggestion.strip())
+
+        #suggestion 3
+        suggestion= "#1 "
+        for word, tag in converted:
+            suggestion += f"{word}{tag} "
+
+        for word, pos_name in tags_name:
+            if pos_name in ("TO", "IN", "ADP", "SCONJ"):
+                suggestion+= f"{word} "
+        if prep:
+            suggestion+= prep + " "
+        suggestion+='#2'
+        if suggestion.strip() not in suggestions:
+            suggestions.append(suggestion.strip())
+        
+
+        #suggestion 4
+        suggestion = "#2 "
+        for word, tag in converted:
+            suggestion += f"{word}{tag} "
+        for word, pos_name in tags_name:
+            if pos_name in ("TO", "IN", "ADP", "SCONJ"):
+                suggestion+= f"{word} "
+        if prep:
+            suggestion+= prep + " "
+        suggestion+= "#1"
+
+        if suggestion.strip() not in suggestions:
+            suggestions.append(suggestion.strip())
+        
+#just to have the prepositions
+    elif kind== "symdef" or kind=="symdecl":
         match_name= re.search(r"name= ([^,\]]+)", line)
         if match_name:
             tokens_name= [match_name.group(1)]
-            tags_name= pos_tag_for_language(tokens_name, lang)
+            tags_name= pos_tag_for_language(tokens_name, language)
         else:
             for p in prepositions:
                 if symbol_name.endswith(p): 
                     prep= p
                     break
-
-    suggestions: list[str]= []
+#generation of suggeestions
+   
     for correspondance in correspondances:
         tokens= nltk.word_tokenize(correspondance)
-        tags= pos_tag_for_language(tokens, lang)
+        tags= pos_tag_for_language(tokens, source_language)
 
         converted=[]
         for word, pos in tags:
-            tag= pos_map.get(pos, "")
+            tag= pos_map.get(pos, " ")
             if tag is None:
                 continue
-            converted.append((word, tag))
+            converted.append((word, tag))   
 
         suggestion= ""
         if num_args==1:
@@ -178,7 +285,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     suggestion += f"{word}{tag} "
 
                 if match_name:
-                    for word. pos_name in tags_name:
+                    for word, pos_name in tags_name:
                         if pos_name in ("TO", "IN", "ADP", "SCONJ"):
                             suggestion+= f"{word} "
                 elif prep:
@@ -202,7 +309,8 @@ class EnglishDocSymbol:
         self.uri= uri
         self.path=path
 
-    def english_symbol_from_not_english_document(self, source_document_path: str, symbol_name:str):
+    def english_symbol_from_not_english_document(self, source_document_path: str, symbol_name:str,):
+        source_document_path=str(source_document_path)
         match= re.match(r"^(.*)?.[a-z]{2,3}\.tex$", source_document_path)
         if not match:
             return None
@@ -210,9 +318,9 @@ class EnglishDocSymbol:
         english_path= f"{match.group(1)}.en.tex"
         if not os.path.isfile(english_path):
             return None
-        with open(english_path, encodeing= "utf8") as f:
+        with open(english_path, encoding= "utf8") as f:
             english_text=f.read()
-
+       
         sym_match= re.search(
             rf'\\symdef\*?\{{{re.escape(symbol_name)}\}}(?:\[[^\]]*\])?\{{.*\}}', english_text,
         )
@@ -226,7 +334,7 @@ class EnglishDocSymbol:
         uri= self.get_uri_from_annotations( english_text, sym_match.start(). kind, file_path= english_path,)
         if uri is None:
             return None
-        return EnglishDocSymbol(uri=uri, path= english_path)
+        return EnglishDocSymbol(kind= kind, uri=uri, path= english_path, declaration= sym_match.group(0))
 
 
 class VerbalizationAnnoState:
@@ -373,7 +481,7 @@ class DeleteVerbalizationCommand(Command):
         
         interface.write_text(f' Existing verbalizations for "{self.symbol_name}": \n')
 
-        for i, match in enumerate(matches, start =1):
+        for i, match in enumerate(matches, start=1):
             interface.write_text(f"{i}) {match.group(0)}\n"         
             )
 
@@ -382,8 +490,8 @@ class DeleteVerbalizationCommand(Command):
         
      
         try:
-            choice = int (answer)
-            selected_match= matches[choice - 1]
+            choice =int (answer)
+            selected_match= matches[choice-1]
         except (ValueError, IndexError):
             interface.write_text('\nInvalid choice.\n')
             return[]
@@ -420,16 +528,20 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         get_stex_catalogs()
         return VerbalizationAnnoState()
 
-    def get_uri_from_annotations( self, document_content:str, position: int, kind: str, symbol_name: Optional[str]= None, source_lang: str="en", ):
+    def get_uri_from_annotations( self, document_content:str, position: int, kind: str, symbol_name: Optional[str]= None, source_lang: str="en",):
+        language= get_document_language(document_content)
         if kind== "definiendum":
+            
             #looks in the whole catalog
             catalog= get_stex_catalogs()[source_lang]
             for symbol in catalog.symb_iter():
+                
                 if symbol.uri.endswith(f"s={symbol_name}"):
                     return symbol
             #looks for the symdef/-decl from the english version of the document
             current_path= str(self.snify_state.get_current_document().path)
             english_symbol= self.english_symbol_from_not_english_document(current_path, symbol_name)
+
             if english_symbol is None:
                 return english_symbol
             return None
@@ -448,21 +560,29 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
 
         return None
 
+    def find_next_definiendum_position(self, document_content:str, symbol_name:str,)->Optional[int]:
+        pattern=rf'\\definiendum\{{{re.escape(symbol_name)}\}}'
+        match= re.search(pattern, document_content)
+        if match:
+            return match.start()
+        return None
+    
     def extract_symbol_information(self, document_content: str, position: int, source_lang:str="en"):
-        line = document_content[position:].splitlines()[0]
+        remaining_document = document_content[position:]
 
         form=None
         num_args= 0
 
         #definiendum
-        if "\\definiendum" in line:
-            match= re.search(r'\\definiendum\{([^}]*)\}\{([^}]*)\}', line)
-            if not match:
-                return None
+        if "\\definiendum" in remaining_document:
+            match= re.search(r'\\definiendum\{([^}]*)\}\{([^}]*)\}', remaining_document, re.DOTALL)
 
             kind= "definiendum"
-            symbol_name = match.group(1)
-            displayed_name= match.group(2)
+            symbol_name = re.sub(r'\s+', ' ', match.group(1)).strip()
+            displayed_name= re.sub(r'\s+', ' ',match.group(2)).strip()
+
+            #definiendum_offset=remaining_document.find(r"\definiendum")
+            #definiendum_position=position+definiendum_offset
             english_symbol= self.get_uri_from_annotations( document_content, position, kind, symbol_name, source_lang=source_lang,)
             if english_symbol is None:
                 return None
@@ -503,9 +623,9 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
 
             return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": num_args, "formula": form, "line": symdef_line, "insert_position": insert_position,}
 
-        elif line.startswith("\\symdef"):
+        elif remaining_document.startswith("\\symdef"):
             kind= "symdef"
-            match= re.search(r'\\symdef\{([^}]*)\}', line)
+            match= re.search(r'\\symdef\{([^}]*)\}', remaining_document)
             if not match:
                 return None
 
@@ -515,11 +635,11 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 symbol_name= uri.split("s=")[-1] 
             else:
                 symbol_name=displayed_name
-            args_match= re.search(r'args=(\d+)', line)
+            args_match= re.search(r'args=(\d+)', remaining_document)
             if args_match:
                 num_args= int(args_match.group(1))
 
-            formula_match= re.search(r'\\symdef?\{[^}]+\}(?:\[[^\]]*\])?\{(.*)\}$', line,)
+            formula_match= re.search(r'\\symdef?\{[^}]+\}(?:\[[^\]]*\])?\{(.*)\}$', remaining_document,)
             if formula_match:
                 form= formula_match.group(1)
             pattern = rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}\{{.*?\}}'
@@ -533,11 +653,11 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 line_end= document_content.find("\n", position)
                 insert_position= len(document_content) if line_end==-1 else line_end+1
 
-            return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": num_args, "formula": form, "line": line, "insert_position": insert_position,}
+            return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": num_args, "formula": form, "line": remaining_document, "insert_position": insert_position,}
 
-        elif line.startswith("\\symdecl"):
+        elif remaining_document.startswith("\\symdecl"):
             kind= "symdecl"
-            match= re.search(r'\\symdecl\*?\{([^}]*)\}', line)
+            match= re.search(r'\\symdecl\*?\{([^}]*)\}', remaining_document)
             if not match:
                 return None
 
@@ -559,8 +679,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 line_end= document_content.find("\n", position)
                 insert_position= len(document_content) if line_end==-1 else line_end+1
 
-            return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": 0, "formula": None, "line":line, "insert_position": insert_position,}
-
+            return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": 0, "formula": None, "line":remaining_document, "insert_position": insert_position,}
         return None
 
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\algebra.en.tex"
@@ -575,10 +694,10 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             self, document: Document, position: int
     ) -> Optional[tuple[int, list[Modification]]]:
         # a string with the content of the file
-        document_content = document.get_content()
+        document_content = document.get_content() #full document
         # we only care about stuff after the current position
         language= get_document_language(document)
-        document_content = document_content[position:] 
+        document_content = document_content[position:] #search content
         if language== "en":
             target_patterns= (r'\symdef', r'\symdecl')
             #positions = [p for p in (document_content.find('\\symdef'), document_content.find('\\symdecl'),) if p!=-1]
@@ -592,12 +711,16 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 p= document_content.find(target, p+1)
         if not positions: 
             return None
+        #interface.write_text(f"DEBUG: gefunden Kandidaten ( relativ) = {positions}\n")
         for relative_pos in sorted(positions):
-            next_pos = position+relative_pos
-            if self.extract_symbol_information(document.get_content(), next_pos) is not None:
+            next_pos= position+relative_pos #position in the full document
+            info=self.extract_symbol_information(document.get_content(), next_pos) 
+            if info is not None:
                 return next_pos, []
         #next_pos= position+ min(positions)
+            
         return None
+            
         
     
         #our_position = min(positions)
@@ -616,16 +739,15 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
 
         document_content = self.snify_state.get_current_document().get_content()
         position = self.snify_state.cursor.in_doc_pos
-
-        info= self.extract_symbol_information(document_content, position)
+        
+        info = self.extract_symbol_information(document_content, position)
+        
         if info is None:
             return
         symbol_name= info["symbol_name"]
         line= info["line"]
         kind= info["kind"]
 
-        #string = document_content[position:]
-        #line = string.splitlines()[0]
         if kind=="symdef":
             interface.write_text('\nCurrent \\symdef:\n\n')
             
@@ -656,16 +778,17 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         document_content = self.snify_state.get_current_document().get_content()
         #string = document_content[position:]
         info= self.extract_symbol_information(document_content, position)
-        if info is None:
-            return
+  
         symbol_name= info["symbol_name"]
+        displayed_name= info["displayed_name"]
         line= info["line"]
         kind= info["kind"]
         uri= info["uri"]
         num_args= info.get("num_args", 0)
         form= info.get("formula")
         insert_position= info["insert_position"]
-        target_lang= get_document_language(document=self.snify_state.get_current_document())
+        language= get_document_language(document=self.snify_state.get_current_document())
+        source_document_path= self.snify_state.get_current_document().path
         source_lang= "en"
         catalog= get_stex_catalogs()[source_lang]
 
@@ -676,10 +799,10 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                     if verbalization.verb not in correspondances:
                         correspondances.append(verbalization.verb.replace('\n', ' '))      
            
-        suggestions=build_suggestions(correspondances, kind, line, symbol_name, num_args, form, source_lang,)
+        suggestions=build_suggestions(correspondances, kind, line, symbol_name, num_args, form, source_lang, language, displayed_name, document_content, source_document_path)
 
         
-        #AddVerbalizationCommand(position, symbol_name, document_content, uri, num_args, correspondances)
+        #AddVerbalizationCommand(insert_position, symbol_name, document_content, uri, num_args, suggestions, target_lang)
         #position = position + 1 + string.find('\n')
 
         return CommandCollection(
@@ -689,7 +812,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 UndoCommand(is_possible=stepper_status.can_undo),
                 RedoCommand(is_possible=stepper_status.can_redo),
                 SkipCommand(self.snify_state, description_short='kip'),
-                AddVerbalizationCommand(insert_position, symbol_name, document_content, uri, num_args, suggestions, target_lang),
+                AddVerbalizationCommand(insert_position, symbol_name, document_content, uri, num_args, suggestions, language),
                 DeleteVerbalizationCommand(position, symbol_name, document_content),
             ],
             have_help=True,
