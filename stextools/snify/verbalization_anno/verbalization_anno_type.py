@@ -70,6 +70,7 @@ def get_document_language(document: Document)->str:
     match= re.search(r"\.([a-z]{2,3})\.tex$", path)
     if match:
         return match.group(1)
+    
     return DEFAULT_LANGUAGE
 
 
@@ -489,56 +490,46 @@ class AddVerbalizationCommand(Command):
 
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\ai-agents\source\mod\goal-based-agent.en.tex"
 class DeleteVerbalizationCommand(Command):
-    def __init__(self, position: int, symbol_name:str, document_content:str):
-        self.position = position
-        self.symbol_name= symbol_name
-        self.document_content = document_content
-        
 
+    def __init__(self, position: int, symbol_name:str, document_content:str):
+        self.position= position
+        self.symbol_name=symbol_name
+        self.document_content=document_content
         super().__init__(CommandInfo(
             pattern_presentation='d',
             description_short='elete verbalization',
             description_long='Delete a verbalization for the current symbol.'
         ))
-    def execute(self, call: str) -> list[CommandOutcome]:
-        """ this is called when the user presses 'd' """
-        pattern = rf'\\verbalization\{{{re.escape(self.symbol_name)}\}}\[.*?\]\{{.*?\}}\{{.*?\}}'
-        matches = list (re.finditer(pattern, self.document_content))
 
+    def execute(self, call:str)-> list[CommandOutcome]:
+        """this is called when the user presses 'd' """
+        pattern= rf'\\verbalization\{{{re.escape(self.symbol_name)}\}}\[.*?\]\{{.*?\}}\{{.*?\}}'
+        matches= list(re.finditer(pattern, self.document_content))
         if not matches:
-            interface.write_text(f'No Verbalizations found for "{self.symbol_name}".\n'
-                    )
+            interface.write_text(f'No verbalizations found for "{self.symbol_name}".\n')
             return []
-        
-        interface.write_text(f' Existing verbalizations for "{self.symbol_name}": \n')
-
+        interface.write_text(f'Existing verbalizations for "{self.symbol_name}": \n')
         for i, match in enumerate(matches, start=1):
-            interface.write_text(f"{i}) {match.group(0)}\n"         
-            )
-
-        interface.write_text("\nwhich verbalization do you want to delete: \n")
+            interface.write_text(f"{i}) {match.group(0)}\n")
+        interface.write_text("\n which verbalization do you want to delete: \n")
         answer= interface.get_input()
-        
-     
-        try:
-            choice =int (answer)
-            selected_match= matches[choice-1]
-        except (ValueError, IndexError):
-            interface.write_text('\nInvalid choice.\n')
+        try: 
+            choice=int(answer)
+            selected_match=matches[choice-1]
+        except(ValueError, IndexError):
+            interface.write_text('\n Invalid choice.\n')
             return[]
-        
-        start= selected_match.start()
-        end = selected_match.end()
-        while (
-        end <len(self.document_content)
-        and self.document_content[end] in '\n\r'
+        start=selected_match.start()
+        end= selected_match.end()
+        while(
+            end>len(self.document_content)
+            and self.document_content[end] in '\n\r'
         ):
-           end += 1
-        return [
-           SubstitutionOutcome( '', start, end)
-            ]
+            end+=1
+        return[
+            SubstitutionOutcome('', start, end)
+        ]
     
-
 class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
     def __init__(self):
         pass
@@ -561,11 +552,12 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
 
     def get_uri_from_annotations( self, document_content:str, position: int, kind: str, symbol_name: Optional[str]= None, source_lang: str="en",):
         language= get_document_language(document_content)
-    
+        print(language)
         if kind== "definiendum":
             
             #looks in the whole catalog
             catalog= get_stex_catalogs()[language]
+            #print(catalog.symb_to_verb)
             for symbol in catalog.symb_iter():
                 
                 if symbol.uri.endswith(f"s={symbol_name}"):
