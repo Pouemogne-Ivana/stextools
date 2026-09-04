@@ -70,14 +70,13 @@ def get_document_language(document: Document)->str:
     match= re.search(r"\.([a-z]{2,3})\.tex$", path)
     if match:
         return match.group(1)
-    
     return DEFAULT_LANGUAGE
 
 
 def pos_tag_for_language(tokens: list[str], language:str)-> list[tuple[str, str]]:
     #tokenize and tag words for the given language
     if language=="en":
-        return nltk.pos_tag(tokens)
+        return nltk.pos_tag(tokens) #because nltk works well with documents in english
     try:
         import spacy
         model_name= {"de": "de_core_news_sm",
@@ -243,7 +242,8 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
 
         if suggestion.strip() not in suggestions:
             suggestions.append(suggestion.strip())
-        
+
+         
 #just to have the prepositions
     elif kind== "symdef" or kind=="symdecl":
         match_name= re.search(r"name= ([^,\]]+)", line)
@@ -256,7 +256,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     prep= p
                     break
 #generation of suggeestions
-   
+    #interface.write_text(f"DEBUG kind={kind!r}, num_args={num_args!r}, form={form!r}, correspondances={correspondances!r}, displayed_name={displayed_name!r}\n")
     for correspondance in correspondances:
         tokens= nltk.word_tokenize(correspondance)
         tags= pos_tag_for_language(tokens, source_language)
@@ -340,33 +340,6 @@ class EnglishDocSymbol:
     def __init__( self, uri:str, path:str):
         self.uri= uri
         self.path=path
-
-    def english_symbol_from_not_english_document(self, source_document_path: str, symbol_name:str,):
-        source_document_path=str(source_document_path)
-        match= re.match(r"^(.*)?.[a-z]{2,3}\.tex$", source_document_path)
-        if not match:
-            return None
-
-        english_path= f"{match.group(1)}.en.tex"
-        if not os.path.isfile(english_path):
-            return None
-        with open(english_path, encoding= "utf8") as f:
-            english_text=f.read()
-       
-        sym_match= re.search(
-            rf'\\symdef\*?\{{{re.escape(symbol_name)}\}}(?:\[[^\]]*\])?\{{.*\}}', english_text,
-        )
-        kind="symdef"
-        if sym_match is None:
-            sym_match= re.search(rf'\\symdecl\*?\{{{re.escape(symbol_name)}\}}', english_text,)
-            kind= "symdecl"
-
-        if sym_match is None:
-            return None
-        uri= self.get_uri_from_annotations( english_text, sym_match.start(). kind, file_path= english_path,)
-        if uri is None:
-            return None
-        return EnglishDocSymbol(kind= kind, uri=uri, path= english_path, declaration= sym_match.group(0))
 
 
 class VerbalizationAnnoState:
@@ -550,14 +523,41 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         get_stex_catalogs()
         return VerbalizationAnnoState()
 
+    def english_symbol_from_not_english_document(self, source_document_path: str, symbol_name:str,):
+            source_document_path=str(source_document_path)
+            match= re.match(r"^(.*)?.[a-z]{2,3}\.tex$", source_document_path)
+            if not match:
+                return None
+    
+            english_path= f"{match.group(1)}.en.tex"
+            if not os.path.isfile(english_path):
+                return None
+            with open(english_path, encoding= "utf8") as f:
+                english_text=f.read()
+           
+            sym_match= re.search(
+                rf'\\symdef\*?\{{{re.escape(symbol_name)}\}}(?:\[[^\]]*\])?\{{.*\}}', english_text,
+            )
+            kind="symdef"
+            if sym_match is None:
+                sym_match= re.search(rf'\\symdecl\*?\{{{re.escape(symbol_name)}\}}', english_text,)
+                kind= "symdecl"
+    
+            if sym_match is None:
+                return None
+            uri= self.get_uri_from_annotations( english_text, sym_match.start(), kind, file_path= english_path,)
+            if uri is None:
+                return None
+            return EnglishDocSymbol(kind= kind, uri=uri, path= english_path, declaration= sym_match.group(0))
+    
+
     def get_uri_from_annotations( self, document_content:str, position: int, kind: str, symbol_name: Optional[str]= None, source_lang: str="en",):
         language= get_document_language(document_content)
-        print(language)
+    
         if kind== "definiendum":
             
             #looks in the whole catalog
-            catalog= get_stex_catalogs()[language]
-            #print(catalog.symb_to_verb)
+            catalog= get_stex_catalogs()["de"]
             for symbol in catalog.symb_iter():
                 
                 if symbol.uri.endswith(f"s={symbol_name}"):
@@ -649,19 +649,22 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
 
             return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": num_args, "formula": form, "line": symdef_line, "insert_position": insert_position,}
 
+        #symdef
         elif remaining_document.startswith("\\symdef"):
             kind= "symdef"
-            match= re.search(r'\\symdef\{([^}]*)\}', remaining_document)
+            match= re.search(r'\\symdef\*?\{([^}]*)\}\[([^\]]*)\]{(.*)\}', remaining_document)
             if not match:
                 return None
             displayed_name= match.group(1)
+            options=match.group(2)
+            form= match.group(3)
 
             uri= self.get_uri_from_annotations(document_content, position, kind)
             if uri and "s=" in uri:
                 symbol_name= uri.split("s=")[-1] 
             else:
                 symbol_name=displayed_name
-            args_match= re.search(r'args=(\d+)', remaining_document)
+            args_match= re.search(r'args=(\d+)', options)
 
             if args_match:
                 num_args= int(args_match.group(1))
@@ -684,7 +687,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 insert_position= len(document_content) if line_end==-1 else line_end+1
 
             return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": num_args, "formula": form, "line": remaining_document, "insert_position": insert_position,}
-
+        #symdecl
         elif remaining_document.startswith("\\symdecl"):
             kind= "symdecl"
             match= re.search(r'\\symdecl\*?\{([^}]*)\}', remaining_document)
@@ -744,7 +747,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 p= document_content.find(target, p+1)
         if not positions: 
             return None
-        #interface.write_text(f"DEBUG: gefunden Kandidaten ( relativ) = {positions}\n")
+        #interface.write_text(f"DEBUG: gefundene Kandidaten ( relativ) = {positions}\n")
         for relative_pos in sorted(positions):
             next_pos= position+relative_pos #position in the full document
             info=self.extract_symbol_information(document.get_content(), next_pos) 
