@@ -50,10 +50,15 @@ def _get_content_utf8_safe(self):
 Document.get_content= _get_content_utf8_safe
 
 DEFAULT_LANGUAGE = "en"
-Language_pos: dict[str, dict[str, Optional[str]]] = {"en": {"TO":None, "IN": None, "JJ": ":A", "RB": ":A", "NN":":N", "NNS":":N", "VB":":V", "VBD":":V",},
+Language_pos: dict[str, dict[str, Optional[str]]] = {"en": {"TO":None, "IN": None, "JJ": ":A", "RB": ":A", "NN":":N", "NNS":":N", "VB":":V", "VBD":":V", "VBG": ":V", "VBN":":V","VBP":":V", "VBZ":":V" },
                                                      "de":{"ADP": None, "ADJ": ":A", "ADV": ":A", "NOUN": ":N", "PROPN": ":N", "VERB": ":V", "AUX":":V",},
                                                        } #a dictionary of dictionaries of tags in diffrent languages
 Language_prepositions: dict[str, list[str]]= {"en": ["for", "from", "at", "of", "to","with"], "de":["für", "von", "bei", "zu", "mit","auf"],}
+
+POS_OVERRIDES: dict[str, dict[str, str]]={"en":{"contains":":v",
+                                                "equals": ":V",
+                                                "extends": ":V",},
+                                                "de":{},}
 
 
 @functools.cache
@@ -109,11 +114,15 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
             tags_name=pos_tag_for_language(tokens_name, language)
             
             converted=[]
-            for word, pos in tags_name:
-                tag= pos_map.get(pos, " ")
+            for word, pos in tags:
+                override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
+                if override:
+                    tag=override
+                else:
+                    tag= pos_map.get(pos, None)
                 if tag is None:
                     continue
-                converted.append((word, tag))
+                converted.append((word, tag))  
             
             if form and form.strip():
                 if num_args<=1:
@@ -203,7 +212,11 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
 
         converted=[]
         for word, pos in tags:
-            tag= pos_map.get(pos, " ")
+            override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
+            if override:
+                tag=override
+            else:
+                tag= pos_map.get(pos, None)
             if tag is None:
                 continue
             converted.append((word, tag))   
@@ -407,6 +420,8 @@ class AddVerbalizationCommand(Command):
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\divgroup.en.tex"
 
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\ai-agents\source\mod\goal-based-agent.en.tex"
+
+#  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\sets\source\mod\subsupset.en.tex"
 class DeleteVerbalizationCommand(Command):
 
     def __init__(self, position: int, symbol_name:str, document_content:str, snify_state):
@@ -559,7 +574,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         return None
     
     def extract_symbol_information(self, document_content: str, position: int, source_lang:str="en"):
-        print("DEBUG positon:", position)
+        #print("DEBUG positon:", position)
         remaining_document = document_content[position:]
         language= self.get_document_language(str(self.snify_state.get_current_document().path))
         form=None
@@ -715,7 +730,6 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": 0, "formula": None, "line":current_line, "insert_position": insert_position,}
         return None
 
-# 
 
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\algebraic.de.tex"
 
@@ -729,7 +743,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         # a string with the content of the file
         full_document_content = document.get_content() #full document
         language= self.get_document_language(str(self.snify_state.get_current_document().path))
-        print("language=", language)
+        #print("language=", language)
         # we only care about stuff after the current position
         document_content = full_document_content[position+1:] #search content
         if language== "en":
@@ -742,10 +756,10 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 absolute_position= position+1+match.start()
                 candidates.append(absolute_position)
         candidates=sorted(set(candidates))#to remove the dulpicates    
-        print("candidates=", candidates)    
+        #print("candidates=", candidates)    
         for candidate in sorted(candidates):
             info= self.extract_symbol_information(full_document_content, candidate)
-            print ("info", info)
+            #print ("info", info)
             if info is not None:
                 return candidate, []
         return None
