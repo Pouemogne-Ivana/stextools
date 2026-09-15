@@ -87,7 +87,6 @@ def get_stex_catalogs() -> dict[str, LocalFlamsCatalog]:
 
 
 """
-
 def pos_tag_for_language(tokens: list[str], language:str)-> list[tuple[str, str]]:
     #tokenize and tag words for the given language
     if language=="en":
