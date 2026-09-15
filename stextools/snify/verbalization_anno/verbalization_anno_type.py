@@ -4,6 +4,7 @@ import functools
 import nltk
 import os
 import dataclasses
+import stanza
 from pathlib import Path
 from typing import Optional
 from stextools.snify.text_anno.local_stex_catalog import (local_flams_stex_catalogs, LocalFlamsCatalog,)
@@ -48,18 +49,36 @@ def _get_content_utf8_safe(self):
         self._content=self.path.read_text(encoding= "utf-8")
     return self._content
 Document.get_content= _get_content_utf8_safe
-
+#"en": {"TO":None, "IN": None, "JJ": ":A", "RB": ":A", "NN":":N", "NNS":":N", "VB":":V", "VBD":":V", "VBG": ":V", "VBN":":V","VBP":":V", "VBZ":":V" },
 DEFAULT_LANGUAGE = "en"
-Language_pos: dict[str, dict[str, Optional[str]]] = {"en": {"TO":None, "IN": None, "JJ": ":A", "RB": ":A", "NN":":N", "NNS":":N", "VB":":V", "VBD":":V", "VBG": ":V", "VBN":":V","VBP":":V", "VBZ":":V" },
-                                                     "de":{"ADP": None, "ADJ": ":A", "ADV": ":A", "NOUN": ":N", "PROPN": ":N", "VERB": ":V", "AUX":":V",},
-                                                       } #a dictionary of dictionaries of tags in diffrent languages
+UPOS_MAP: dict[str, dict[str, Optional[str]]] = {"ADP": None, "ADJ": ":A", "ADV": ":A", "NOUN": ":N", "PROPN": ":N", "VERB": ":V", "AUX":":V", "SCONJ":None, "CCONJ":None,}
+#a dictionary of dictionaries of tags in diffrent languages
 Language_prepositions: dict[str, list[str]]= {"en": ["for", "from", "at", "of", "to","with"], "de":["für", "von", "bei", "zu", "mit","auf"],}
 
-POS_OVERRIDES: dict[str, dict[str, str]]={"en":{"contains":":v",
-                                                "equals": ":V",
-                                                "extends": ":V",},
-                                                "de":{},}
+POS_OVERRIDES: dict[str, dict[str, str]]={"en":{"contains":":V","equals": ":V","extends": ":V",},"de":{},}
 
+stanza.download('en')
+stanza.download('de')
+Stanza_lang_codes: dict[str, str]={"en":"en", "de":"de",}
+stanza_pipelines:dict[str, "stanza.Pipeline"]={}
+
+def get_stanza_pipeline(language:str)->"stanza.Pipeline":
+    stanza_code=Stanza_lang_codes.get(language, "en")
+    if stanza_code not in stanza_pipelines:
+        stanza_pipelines [stanza_code]= stanza.Pipeline(lang= stanza_code, processors='tokenize,pos,lemma', verbose=False,)
+    return stanza_pipelines[stanza_code]
+
+def tag_and_lemmatize(text:str, language:str)->list[tuple[str,str,str]]:
+    try:
+        nlp=get_stanza_pipeline(language)
+        doc=nlp(text)
+        return [(word.text, word.upos, word.lemma) for sent in doc.sentences for word in sent.words]
+    except Exception as e:
+        interface.write_text(
+            f"\no Stanza pipeline"
+        )
+        tags=nltk.pos_tag(nltk.word_tokenize(text))
+        return[(word, pos, word) for word, pos in tags]
 
 @functools.cache
 def get_stex_catalogs() -> dict[str, LocalFlamsCatalog]:
@@ -67,7 +86,7 @@ def get_stex_catalogs() -> dict[str, LocalFlamsCatalog]:
 
 
 
-
+"""
 
 def pos_tag_for_language(tokens: list[str], language:str)-> list[tuple[str, str]]:
     #tokenize and tag words for the given language
@@ -89,16 +108,16 @@ def pos_tag_for_language(tokens: list[str], language:str)-> list[tuple[str, str]
                              f"results may be poor. \n")
         return nltk.pos_tag(tokens)
 
-def get_spacy_pipeline(model_name: str):
+#def get_spacy_pipeline(model_name: str):
     import spacy
     return spacy.load( model_name)
-
+"""
 def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_name:str, num_args: int, form: Optional[str], source_language:str, language: str, displayed_name:str, document:str, source_document_path:str)-> list[str]:
     form= form or ""
     if not language:
         language= DEFAULT_LANGUAGE
 
-    pos_map= Language_pos.get( language, Language_pos[DEFAULT_LANGUAGE])
+    #pos_map= Language_pos.get( language, Language_pos[DEFAULT_LANGUAGE])
     prepositions= Language_prepositions.get(language, Language_prepositions[DEFAULT_LANGUAGE])
 
     prep=" "
@@ -110,19 +129,19 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
         match_name=re.sub(r'\s+', ' ', match.group(1)).strip()
         
         if displayed_name:
-            tokens_name= nltk.word_tokenize(displayed_name)
-            tags_name=pos_tag_for_language(tokens_name, language)
+            #tokens_name= nltk.word_tokenize(displayed_name)
+            tags_name=tag_and_lemmatize(displayed_name, language)
             
             converted=[]
-            for word, pos in tags:
-                override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
+            for word, pos, lemma in tags_name:
+                override=POS_OVERRIDES.get(language, {}).get(word.lower())
                 if override:
                     tag=override
                 else:
-                    tag= pos_map.get(pos, None)
+                    tag= UPOS_MAP.get(pos, None)
                 if tag is None:
                     continue
-                converted.append((word, tag))  
+                converted.append((lemma, tag))  
             
             if form and form.strip():
                 if num_args<=1:
@@ -142,7 +161,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     if suggestion not in suggestions:
                         suggestions.append(suggestion.strip())
 
-                if num_args>=2:
+                if num_args==2:
                     position1 = form.find ("#1")
                     if position1==-1: 
                         position1= form.find("{#1}")
@@ -169,6 +188,13 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                         suggestion+= "#1"
                     if suggestion not in suggestions:
                         suggestions.append(suggestion.strip())
+                elif num_args==3:
+                    suggestion= "#1 "
+                    for word,tag in converted:
+                        suggestion+= f'{word }{tag} '
+                    suggestion += "from #2 to #3"
+                    if suggestion.strip() and suggestion.strip() not in suggestions:
+                        suggestions.append(suggestion.strip())
             if not (form and form.strip()):
                 #suggestion 1    
                 suggestion = "#1"
@@ -181,11 +207,11 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                 for word,tag in converted:
                     suggestion += f'{word }{tag} '
                 
-                for word, pos_name in tags_name:
-                    if pos_name in ("ADP", "IN", "TO") : 
+                for word, pos_name,lemma in tags_name:
+                    if pos_name in ("ADP", "SCONJ") : 
                         suggestion+= f'{word} '
                         break
-                if prep and not any(pos_name in ("ADP", "IN", "TO") for _, pos_name in tags_name ):
+                if prep and not any(pos_name in ("ADP", "SCONJ") for _, pos_name, _ in tags_name ):
                         suggestion+= "" +prep+ ""
                 suggestion+="#1"
 
@@ -197,8 +223,8 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
     elif kind== "symdef" or kind=="symdecl":
         match_name= re.search(r"name=([^,\]]+)", line)
         if match_name:
-            tokens_name= nltk.word_tokenize(match_name.group(1))
-            tags_name= pos_tag_for_language(tokens_name, language)
+            #tokens_name= nltk.word_tokenize(match_name.group(1))
+            tags_name= tag_and_lemmatize(match_name.group(1), language)
         else:
             for p in prepositions:
                 if symbol_name.endswith(p): 
@@ -207,19 +233,19 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
 #generation of suggeestions
     #interface.write_text(f"DEBUG kind={kind!r}, num_args={num_args!r}, form={form!r}, correspondances={correspondances!r}, displayed_name={displayed_name!r}\n")
     for correspondance in correspondances:
-        tokens= nltk.word_tokenize(correspondance)
-        tags= pos_tag_for_language(tokens, source_language)
+        #tokens= nltk.word_tokenize(correspondance)
+        tags= tag_and_lemmatize(correspondance, source_language)
 
         converted=[]
-        for word, pos in tags:
+        for word, pos, lemma in tags:
             override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
             if override:
                 tag=override
             else:
-                tag= pos_map.get(pos, None)
+                tag= UPOS_MAP.get(pos, None)
             if tag is None:
                 continue
-            converted.append((word, tag))   
+            converted.append((lemma, tag))   
 
         suggestion= ""
         if num_args==1 and form:
@@ -233,8 +259,8 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                 for word,tag in converted:
                     suggestion += f'{word }{tag} '
                 if match_name:
-                    for word, pos_name in tags_name:
-                        if pos_name in ('TO', 'IN'): 
+                    for word, pos_name, lemma in tags_name:
+                        if pos_name in ("ADP", "SCONJ"): 
                             suggestion+= f'{word} '
                 else:
                     suggestion+= " " +prep+ " "
@@ -258,20 +284,20 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     suggestion += f"{word}{tag} "
 
                 if match_name: 
-                    for word, pos_name in tags_name:
-                        if pos_name in ("TO", "IN", "ADP", "SCONJ"):
+                    for word, pos_name, lemma in tags_name:
+                        if pos_name in ("ADP", "SCONJ"):
                             suggestion+= f"{word} "
                 elif prep:
                     suggestion+= prep + " "
                 suggestion+='#2'
             else: 
                 suggestion = "#2"
-                for word, tag in converted:
+                for word, tag, in converted:
                     suggestion += f"{word}{tag} "
 
                 if match_name:
-                    for word, pos_name in tags_name:
-                        if pos_name in ("TO", "IN", "ADP", "SCONJ"):
+                    for word, pos_name, lemma in tags_name:
+                        if pos_name in ("ADP", "SCONJ"):
                             suggestion+= f"{word} "
                 elif prep:
                     suggestion+= prep + " "
@@ -286,8 +312,16 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
             suggestion += "from #2 to #3"
             if suggestion.strip() and suggestion.strip() not in suggestions:
                 suggestions.append(suggestion.strip())
+    seen=set()
+    deduped=[]
+    for s in suggestions:
+        normalized=re.sub(r'\s+', ' ', s).strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            deduped.append(normalized)
+    return deduped
 
-    return suggestions
+    
 
 class EnglishDocSymbol:
     def __init__( self, uri:str, path:str, kind:Optional[str]=None,):
