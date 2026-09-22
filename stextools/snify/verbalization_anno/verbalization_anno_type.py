@@ -55,10 +55,10 @@ UPOS_MAP: dict[str, dict[str, Optional[str]]] = {"ADP": None, "ADJ": ":A", "ADV"
 #a dictionary of dictionaries of tags in diffrent languages
 Language_prepositions: dict[str, list[str]]= {"en": ["for", "from", "at", "of", "to","with"], "de":["für", "von", "bei", "zu", "mit","auf"],}
 
-POS_OVERRIDES: dict[str, dict[str, str]]={"en":{"contains":":V","equals": ":V","extends": ":V",},"de":{},}
+#POS_OVERRIDES: dict[str, dict[str, str]]={"en":{"contains":":V","equals": ":V","extends": ":V",},"de":{},}
 
-stanza.download('en')
-stanza.download('de')
+#stanza.download('en')
+#stanza.download('de')
 Stanza_lang_codes: dict[str, str]={"en":"en", "de":"de",}
 stanza_pipelines:dict[str, "stanza.Pipeline"]={}
 
@@ -79,6 +79,7 @@ def tag_and_lemmatize(text:str, language:str)->list[tuple[str,str,str]]:
         )
         tags=nltk.pos_tag(nltk.word_tokenize(text))
         return[(word, pos, word) for word, pos in tags]
+
 
 @functools.cache
 def get_stex_catalogs() -> dict[str, LocalFlamsCatalog]:
@@ -147,7 +148,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     suggestion=""
                     #pos= form.find('{#1}')
                     if (form.startswith('{#1}') or form.startswith('#1')):
-                        suggestion += "#1"
+                        suggestion += "?1"
                         for word,tag in converted:
                             suggestion += f' {word }{tag}'       
                         #suggestions.append(suggestion.strip())
@@ -156,7 +157,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                             suggestion += f'{word }{tag} '
                         if prep:
                             suggestion+=prep+ " "
-                        suggestion+="#1"
+                        suggestion+="?1"
                     if suggestion not in suggestions:
                         suggestions.append(suggestion.strip())
 
@@ -171,32 +172,32 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     args_in_order= position2==-1 or position1==-1 or position1 < position2
 
                     if args_in_order:
-                        suggestion= "#1 "
+                        suggestion= ""
                         for word, tag in converted:
                             suggestion += f"{word}{tag} "
 
                         if prep:
                             suggestion+= prep + " "
-                        suggestion+='#2'
+                        suggestion+='?2'
                     else: 
-                        suggestion = "#2"
+                        suggestion = "?2"
                         for word, tag in converted:
                             suggestion += f"{word}{tag} "
                         if prep:
                             suggestion+= prep + " "
-                        suggestion+= "#1"
+                        #suggestion+= "?1"
                     if suggestion not in suggestions:
                         suggestions.append(suggestion.strip())
                 elif num_args==3:
-                    suggestion= "#1 "
+                    #suggestion= "?1 "
                     for word,tag in converted:
                         suggestion+= f'{word }{tag} '
-                    suggestion += "from #2 to #3"
+                    suggestion += "from ?2 to ?3"
                     if suggestion.strip() and suggestion.strip() not in suggestions:
                         suggestions.append(suggestion.strip())
             if not (form and form.strip()):
                 #suggestion 1    
-                suggestion = "#1"
+                suggestion = "?1"
                 for word,tag in converted:
                     suggestion += f' {word }{tag}'       
                 suggestions.append(suggestion.strip())
@@ -212,7 +213,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                         break
                 if prep and not any(pos_name in ("ADP", "SCONJ") for _, pos_name, _ in tags_name ):
                         suggestion+= "" +prep+ ""
-                suggestion+="#1"
+                suggestion+="?1"
 
                 if suggestion.strip() and suggestion.strip() not in suggestions:
                     suggestions.append(suggestion.strip())
@@ -250,7 +251,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
         if num_args==1 and form:
             #pos= form.find('{#1}')
             if (form.startswith('{#1}') or form.startswith('#1')):
-                suggestion += "#1"
+                suggestion += "?1"
                 for word,tag in converted:
                     suggestion += f' {word }{tag}'       
                 suggestions.append(suggestion.strip())
@@ -263,7 +264,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                             suggestion+= f'{word} '
                 else:
                     suggestion+= " " +prep+ " "
-                suggestion+="#1"
+                suggestion+="?1"
             if suggestion not in suggestions:
                 suggestions.append(suggestion.strip())
 
@@ -278,7 +279,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
             args_in_order= position2==-1 or position1==-1 or position1 < position2
 
             if args_in_order:
-                suggestion= "#1 "
+                suggestion= ""
                 for word, tag in converted:
                     suggestion += f"{word}{tag} "
 
@@ -288,9 +289,9 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                             suggestion+= f"{word} "
                 elif prep:
                     suggestion+= prep + " "
-                suggestion+='#2'
+                suggestion+='?2'
             else: 
-                suggestion = "#2"
+                suggestion = "?2"
                 for word, tag, in converted:
                     suggestion += f"{word}{tag} "
 
@@ -300,15 +301,15 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                             suggestion+= f"{word} "
                 elif prep:
                     suggestion+= prep + " "
-                suggestion+= "#1"
+                #suggestion+= "?1"
             if suggestion not in suggestions:
                 suggestions.append(suggestion.strip())
 
         elif num_args==3 and form:
-            suggestion= "#1 "
+            suggestion= ""
             for word,tag in converted:
                 suggestion+= f'{word }{tag} '
-            suggestion += "from #2 to #3"
+            suggestion += "from ?2 to ?3"
             if suggestion.strip() and suggestion.strip() not in suggestions:
                 suggestions.append(suggestion.strip())
     seen=set()
@@ -377,7 +378,7 @@ class AddVerbalizationCommand(Command):
 
 
     def annotation_type( self, specifications:str)-> Optional[str]:
-        num_arguments= len(re.findall(r'#\d+', specifications))
+        num_arguments= len(re.findall(r'[#?]\d+', specifications))
         colon_pos = [i for i, char in enumerate(specifications)
                if char==':']
         if not colon_pos:
@@ -385,7 +386,8 @@ class AddVerbalizationCommand(Command):
             return None
 
         letter= specifications[colon_pos[-1]+1]
-        annotation_type= letter.upper() if num_arguments<= 1 else letter.upper() +str(num_arguments)
+        annotation_type= letter.upper() 
+        #if num_arguments<= 1 else letter.upper() +str(num_arguments)
 
         interface.write_text(f"Annotation type [{annotation_type}] (Enter to accept): ")
         answer = interface.get_input()
@@ -429,17 +431,28 @@ class AddVerbalizationCommand(Command):
         if annotation_type is None:
             return []
         
-        num_arguments= len(re.findall(r'#\d+', specifications))
-        spec= re.sub(r'#\d+', ' ', specifications)
+        num_arguments= self.num_args
+        #len(re.findall(r'[#?]\d+', specifications))
+        verbalization_pattern=re.sub(r'[#?](\d+)', r'?\1', specifications)
+        if num_arguments>1:
+            verbalization_pattern=re.sub(r'\s*\?1\b\s*', ' ', verbalization_pattern).strip()
+        spec= re.sub(r'[#?]\d+', ' ', specifications)
         spec= re.sub(r':[A-Za-z]+', ' ', spec)
         words= spec.split()
-        name = "-".join(words)
+        variant = "-".join(words)
 
         args= self.arg_types(num_arguments)
+        optional_parts=[variant]
+        if args:
+            optional_parts.append(f"args={args}")
+        optional_parts.append("subject=?1")
+        optional_parts.append(f"type={annotation_type}")
+        optional=f"[{', '.join(optional_parts)}]"
+        
 
-        optional= f"[Name= {name}, args= {args}]" if args else f"[name= {name}]"
+        #optional= f"[{variant}, args= {args}]" if args else f"[{variant}]"
 
-        new_verbalization= (f'\\verbalization{{{self.symbol_name}}}{optional}{{{annotation_type}}}{{{specifications}}}\n')
+        new_verbalization= (f'\\verbalization{{{self.symbol_name}}}{optional}{{{verbalization_pattern}}}\n')
         if new_verbalization in self.document_content:
             interface.write_text( "this verbalization already exist.\n")
             return []
@@ -455,6 +468,8 @@ class AddVerbalizationCommand(Command):
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\ai-agents\source\mod\goal-based-agent.en.tex"
 
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\sets\source\mod\subsupset.en.tex"
+
+#  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\ai-agents\source\mod\Example.en.tex"
 class DeleteVerbalizationCommand(Command):
 
     def __init__(self, position: int, symbol_name:str, document_content:str, snify_state):
@@ -470,7 +485,7 @@ class DeleteVerbalizationCommand(Command):
 
     def execute(self, call:str)-> list[CommandOutcome]:
         """this is called when the user presses 'd' """
-        pattern= rf'\\verbalization\{{{re.escape(self.symbol_name)}\}}\[.*?\]\{{.*?\}}\{{.*?\}}'
+        pattern= rf'\\verbalization\{{{re.escape(self.symbol_name)}\}}\[.*?\]\{{.*?\}}'
         matches= list(re.finditer(pattern, self.document_content))
         if not matches:
             interface.write_text(f'No verbalizations found for "{self.symbol_name}".\n')
@@ -501,10 +516,27 @@ class DeleteVerbalizationCommand(Command):
         return[
             SubstitutionOutcome('', start, end)
         ]
-    
+
+class MarkCompletedCommand(Command):
+    def __init__(self, symbol_name:str, document_content:str, snify_state, insert_position:int,):
+        self.symbol_name=symbol_name
+        self.document_content=document_content
+        self.snify_state=snify_state
+        self.insert_position= insert_position
+        super().__init__(CommandInfo(
+            pattern_presentation='c',
+            description_short='ompleted verbalization',
+            description_long='Mark the current symbol as complete verbalized.'
+        )) 
+
+    def execute(self, call:str)-> list[CommandOutcome]:
+        marker=f"%verbalization-complete: {self.symbol_name}\n"
+        #insert_position=len(self.document_content)
+        return [SubstitutionOutcome(marker, self.insert_position, self.insert_position)]   
 class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
     def __init__(self):
         pass
+
 
     @property
     def name(self) -> str:
@@ -566,7 +598,6 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         return DEFAULT_LANGUAGE
     def get_uri_from_annotations( self, document_content:str, position: int, kind: str, symbol_name: Optional[str]= None, source_lang: str="en", file_path:Optional[str]=None,):
         language= self.get_document_language(str(self.snify_state.get_current_document().path))
-        #print("DEBUG language", language)
         if kind== "definiendum":
             
             #looks in the whole catalog
@@ -578,9 +609,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                    return symbol
             #looks for the symdef/-decl from the english version of the document
             current_path= str(self.snify_state.get_current_document().path)
-            #print("DEBUG: ", current_path)
             english_symbol= self.english_symbol_from_not_english_document(current_path, symbol_name)
-            #print("DEBUG:", english_symbol)
             return english_symbol
         
 
@@ -654,8 +683,8 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 symdef_line=" "
 
             begin_pos= document_content.rfind(r"\begin{sdefinition}", 0, position)
-            pattern1= rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}\{{.*?\}}'
-            pattern2 = r'\\verbalization\{[^}]*\}(?:\[[^\]]*\])?\{[^}]*\}\{[^}]*\}'
+            pattern1= rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}'
+            pattern2 = r'\\verbalization\{[^}]*\}(?:\[[^\]]*\])?\{[^}]*\}'
             matches = list (re.finditer(pattern1, document_content))
             if matches: 
                 verbalizations_end= document_content.find("\n", matches[-1].start())
@@ -763,7 +792,9 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             return {"kind": kind, "symbol_name": symbol_name, "displayed_name": displayed_name, "uri": uri, "num_args": 0, "formula": None, "line":current_line, "insert_position": insert_position,}
         return None
 
-
+    def is_marked_complete ( self, document_content:str, symbol_name:str)->bool:
+        pattern=rf'%verbalization-complete:\s*{re.escape(symbol_name)}\s*$'
+        return re.search(pattern, document_content, re.MULTILINE) is not None
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\algebraic.de.tex"
 
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\divgroup.de.tex"
@@ -776,7 +807,6 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         # a string with the content of the file
         full_document_content = document.get_content() #full document
         language= self.get_document_language(str(self.snify_state.get_current_document().path))
-        #print("language=", language)
         # we only care about stuff after the current position
         document_content = full_document_content[position+1:] #search content
         if language== "en":
@@ -788,13 +818,14 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             for match in re.finditer(pattern, document_content):
                 absolute_position= position+1+match.start()
                 candidates.append(absolute_position)
-        candidates=sorted(set(candidates))#to remove the dulpicates    
-        #print("candidates=", candidates)    
+        candidates=sorted(set(candidates))#to remove the dulpicates        
         for candidate in sorted(candidates):
             info= self.extract_symbol_information(full_document_content, candidate)
-            #print ("info", info)
-            if info is not None:
-                return candidate, []
+            if info is None:
+                continue
+            if self.is_marked_complete(full_document_content, info["symbol_name"]):
+                continue
+            return candidate, []
         return None
         
         #our_position = min(positions)
@@ -838,7 +869,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         
 
     
-        pattern = rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}\{{.*?\}}'
+        pattern = rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}'
         matches = list (re.finditer(pattern, document_content))
         if not matches:
             interface.write_text(f'\nNo Verbalizations found for "{symbol_name}".\n'
@@ -846,6 +877,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             return []
         
         interface.write_text(f'\n Existing verbalizations for "{symbol_name}": \n')
+        
 
         for i, match in enumerate(matches, start =1):
             interface.write_text(f"{i}) {match.group(0)}\n"         
@@ -858,7 +890,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         document_content = self.snify_state.get_current_document().get_content()
         #string = document_content[position:]
         info= self.extract_symbol_information(document_content, position)
-        if info is None:
+        if info is None or self.is_marked_complete(document_content, info["symbol_name"]):
             interface.write_text("\n No more terms to verbalize.\n")
             return CommandCollection(
                 f'snify:{self.name}',
@@ -913,6 +945,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
                 SkipCommand(self.snify_state, description_short='kip'),
                 AddVerbalizationCommand(insert_position, symbol_name, document_content, uri, num_args, suggestions, language, self.snify_state),
                 DeleteVerbalizationCommand(position, symbol_name, document_content, self.snify_state),
+                MarkCompletedCommand(symbol_name, document_content, self.snify_state, insert_position),
             ],
             have_help=True,
         )
