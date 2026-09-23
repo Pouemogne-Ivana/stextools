@@ -53,7 +53,7 @@ Document.get_content= _get_content_utf8_safe
 DEFAULT_LANGUAGE = "en"
 UPOS_MAP: dict[str, dict[str, Optional[str]]] = {"ADP": None, "ADJ": ":A", "ADV": ":A", "NOUN": ":N", "PROPN": ":N", "VERB": ":V", "AUX":":V", "SCONJ":None, "CCONJ":None,}
 #a dictionary of dictionaries of tags in diffrent languages
-Language_prepositions: dict[str, list[str]]= {"en": ["for", "from", "at", "of", "to","with"], "de":["für", "von", "bei", "zu", "mit","auf"],}
+Language_prepositions: dict[str, list[str]]= {"en": ["for", "from", "at", "of", "to","with", "on",], "de":["für", "von", "bei", "zu", "mit","auf"],}
 
 #POS_OVERRIDES: dict[str, dict[str, str]]={"en":{"contains":":V","equals": ":V","extends": ":V",},"de":{},}
 
@@ -75,7 +75,7 @@ def tag_and_lemmatize(text:str, language:str)->list[tuple[str,str,str]]:
         return [(word.text, word.upos, word.lemma) for sent in doc.sentences for word in sent.words]
     except Exception as e:
         interface.write_text(
-            f"\no Stanza pipeline"
+            f"\n no Stanza pipeline"
         )
         tags=nltk.pos_tag(nltk.word_tokenize(text))
         return[(word, pos, word) for word, pos in tags]
@@ -134,11 +134,11 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
             
             converted=[]
             for word, pos, lemma in tags_name:
-                override=POS_OVERRIDES.get(language, {}).get(word.lower())
-                if override:
-                    tag=override
-                else:
-                    tag= UPOS_MAP.get(pos, None)
+                #override=POS_OVERRIDES.get(language, {}).get(word.lower())
+                #if override:
+                    #tag=override
+                #else:
+                tag= UPOS_MAP.get(pos, None)
                 if tag is None:
                     continue
                 converted.append((lemma, tag))  
@@ -189,7 +189,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     if suggestion not in suggestions:
                         suggestions.append(suggestion.strip())
                 elif num_args==3:
-                    #suggestion= "?1 "
+                    suggestion= ""
                     for word,tag in converted:
                         suggestion+= f'{word }{tag} '
                     suggestion += "from ?2 to ?3"
@@ -203,7 +203,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                 suggestions.append(suggestion.strip())
 
                 #suggestion 2
-                suggestion=" "
+                suggestion=""
                 for word,tag in converted:
                     suggestion += f'{word }{tag} '
                 
@@ -230,6 +230,52 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                 if symbol_name.endswith(p): 
                     prep= p
                     break
+
+    if kind== "symdecl":
+        if displayed_name:
+            tags_name= tag_and_lemmatize(displayed_name, language)
+            prep=None
+            last_word=displayed_name.split()[-1].lower() if displayed_name.split() else ""
+            if last_word in prepositions:
+                    prep=displayed_name.split()[-1]
+            converted=[]
+
+            #if not prep:
+            for word, pos, lemma in tags_name:
+                    #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
+                    #if override:
+                        #tag=override
+                    #else:
+                tag= UPOS_MAP.get(pos, None)
+                if tag is None:
+                    continue
+                converted.append((lemma, tag))
+
+            if not prep:
+                suggestion=""
+                #suggestion 1
+                suggestion += "?1"
+                for word,tag in converted:
+                    suggestion += f' {word }{tag}'       
+                suggestions.append(suggestion.strip())
+
+                #suggestion 2
+                suggestion=""
+                for word,tag in converted:
+                    suggestion += f'{word }{tag} '
+                suggestion+="?1" 
+                if suggestion not in suggestions:
+                    suggestions.append(suggestion.strip())
+
+            else:
+                suggestion= ""
+                for word, tag in converted:
+                    suggestion += f"{word}{tag} "
+                suggestion+= prep + ' ?2'
+                if suggestion not in suggestions:
+                    suggestions.append(suggestion.strip())
+
+                     
 #generation of suggeestions
     #interface.write_text(f"DEBUG kind={kind!r}, num_args={num_args!r}, form={form!r}, correspondances={correspondances!r}, displayed_name={displayed_name!r}\n")
     for correspondance in correspondances:
@@ -238,11 +284,11 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
 
         converted=[]
         for word, pos, lemma in tags:
-            override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
-            if override:
-                tag=override
-            else:
-                tag= UPOS_MAP.get(pos, None)
+            #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
+            #if override:
+                #tag=override
+            #else:
+            tag= UPOS_MAP.get(pos, None)
             if tag is None:
                 continue
             converted.append((lemma, tag))   
