@@ -937,7 +937,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         #string = document_content[position:]
         info= self.extract_symbol_information(document_content, position)
         if info is None or self.is_marked_complete(document_content, info["symbol_name"]):
-            interface.write_text("\n No more terms to verbalize.\n")
+            interface.write_text("\n ended verbalization.\n")
             return CommandCollection(
                 f'snify:{self.name}',
                 [
