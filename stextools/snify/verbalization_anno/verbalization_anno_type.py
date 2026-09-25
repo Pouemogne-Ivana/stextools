@@ -224,20 +224,27 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
         match_name= re.search(r"name=([^,\]]+)", line)
         if match_name:
             #tokens_name= nltk.word_tokenize(match_name.group(1))
-            tags_name= tag_and_lemmatize(match_name.group(1), language)
+            tags_name= tag_and_lemmatize(match_name.group(1).strip(), language)
+            if tags_name and tags_name[-1][1]=="ADP":
+                prep=tags_name[-1][0]
         else:
-            for p in prepositions:
-                if symbol_name.endswith(p): 
-                    prep= p
-                    break
-
+            word_in_symbol=re.findall(r'[a-zA-Z]+', symbol_name)
+            last_word= word_in_symbol[-1].lower() if word_in_symbol else ""
+            if last_word in prepositions:
+                prep=last_word
+            #for p in prepositions:
+             #   if symbol_name.endswith(p): 
+              #      prep= p
+               #     break
+    
     if kind== "symdecl":
         if displayed_name:
             tags_name= tag_and_lemmatize(displayed_name, language)
             prep=None
             last_word=displayed_name.split()[-1].lower() if displayed_name.split() else ""
             if last_word in prepositions:
-                    prep=displayed_name.split()[-1]
+                prep=displayed_name.split()[-1]
+
             converted=[]
 
             #if not prep:
@@ -274,7 +281,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                 suggestion+= prep + ' ?2'
                 if suggestion not in suggestions:
                     suggestions.append(suggestion.strip())
-
+        
                      
 #generation of suggeestions
     #interface.write_text(f"DEBUG kind={kind!r}, num_args={num_args!r}, form={form!r}, correspondances={correspondances!r}, displayed_name={displayed_name!r}\n")
@@ -424,6 +431,7 @@ class AddVerbalizationCommand(Command):
 
 
     def annotation_type( self, specifications:str)-> Optional[str]:
+        contains_subject=re.search(r'\?1\b', specifications)
         num_arguments= len(re.findall(r'[#?]\d+', specifications))
         colon_pos = [i for i, char in enumerate(specifications)
                if char==':']
@@ -432,8 +440,11 @@ class AddVerbalizationCommand(Command):
             return None
 
         letter= specifications[colon_pos[-1]+1]
-        annotation_type= letter.upper() 
-        #if num_arguments<= 1 else letter.upper() +str(num_arguments)
+        if contains_subject is not None:  #if our specifications contain ?1 then there is just one argument
+            annotation_type=letter.upper()
+        else: #else then there are the number of arguments in the specifications plus the main argument
+            num_arguments=num_arguments+1
+            annotation_type= letter.upper() +str(num_arguments)
 
         interface.write_text(f"Annotation type [{annotation_type}] (Enter to accept): ")
         answer = interface.get_input()
@@ -473,7 +484,7 @@ class AddVerbalizationCommand(Command):
         if not specifications:
             return []
 
-        annotation_type= self.annotation_type( specifications)
+        annotation_type= self.annotation_type(specifications)
         if annotation_type is None:
             return []
         
@@ -491,7 +502,7 @@ class AddVerbalizationCommand(Command):
         optional_parts=[variant]
         if args:
             optional_parts.append(f"args={args}")
-        optional_parts.append("subject=?1")
+        optional_parts.append("subject=1")
         optional_parts.append(f"type={annotation_type}")
         optional=f"[{', '.join(optional_parts)}]"
         
@@ -516,6 +527,8 @@ class AddVerbalizationCommand(Command):
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\sets\source\mod\subsupset.en.tex"
 
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\ai-agents\source\mod\Example.en.tex"
+
+# python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\ai-agents\source\mod\model-based-agent.en.tex"
 class DeleteVerbalizationCommand(Command):
 
     def __init__(self, position: int, symbol_name:str, document_content:str, snify_state):
@@ -716,9 +729,9 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             )
             if symdef_match:
                 symdef_line= symdef_match.group(0)
-                args_match= re.search(r'args=(\d+)', symdef_line)
-                if args_match:
-                    num_args= int(args_match.group(1))
+                match_args= re.search(r'args=(\d+)', symdef_line)
+                if match_args:
+                    num_args= int(match_args.group(1))
 
                 formula_match= re.search(r'\\symdef\{[^}]+\}(?:\[[^\]]*\])?\{(.*)\}$', symdef_line,)
 
@@ -765,13 +778,17 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             displayed_name= match.group(1)
             options=match.group(2) or ""
             form= match.group(3)
+            match_name= re.search(r"name=([^,\]]+)", options)
 
             uri= self.get_uri_from_annotations(document_content, position, kind)
             if uri and "s=" in uri:
                 symbol_name= uri.split("s=")[-1] 
+            elif match_name:
+                symbol_name=match_name.group(1).strip()
             else:
                 symbol_name=displayed_name
-            args_match= re.search(r'args=(\d+)', options)
+
+            match_args= re.search(r'args=(\d+)', options)
 
             line_end= document_content.find("\n", position)
             if line_end==-1:
@@ -779,8 +796,8 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             else:
                 current_line= document_content[position:line_end]
 
-            if args_match:
-                num_args= int(args_match.group(1))
+            if match_args:
+                num_args= int(match_args.group(1))
 
             #formula_match= re.search(r'\\symdef?\{[^}]+\}(?:\[[^\]]*\])?\{(.*)\}$', remaining_document)
             #if formula_match:
