@@ -232,139 +232,149 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
             last_word= word_in_symbol[-1].lower() if word_in_symbol else ""
             if last_word in prepositions:
                 prep=last_word
-            #for p in prepositions:
-             #   if symbol_name.endswith(p): 
-              #      prep= p
-               #     break
-    
-    if kind== "symdecl":
-        if displayed_name:
-            tags_name= tag_and_lemmatize(displayed_name, language)
-            prep=None
-            last_word=displayed_name.split()[-1].lower() if displayed_name.split() else ""
-            if last_word in prepositions:
-                prep=displayed_name.split()[-1]
-
-            converted=[]
-
-            #if not prep:
-            for word, pos, lemma in tags_name:
-                    #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
-                    #if override:
-                        #tag=override
-                    #else:
-                tag= UPOS_MAP.get(pos, None)
-                if tag is None:
-                    continue
-                converted.append((lemma, tag))
-
-            if not prep:
-                suggestion=""
-                #suggestion 1
-                suggestion += "?1"
-                for word,tag in converted:
-                    suggestion += f' {word }{tag}'       
-                suggestions.append(suggestion.strip())
-
-                #suggestion 2
-                suggestion=""
-                for word,tag in converted:
-                    suggestion += f'{word }{tag} '
-                suggestion+="?1" 
-                if suggestion not in suggestions:
-                    suggestions.append(suggestion.strip())
-
-            else:
-                suggestion= ""
-                for word, tag in converted:
-                    suggestion += f"{word}{tag} "
-                suggestion+= prep + ' ?2'
-                if suggestion not in suggestions:
-                    suggestions.append(suggestion.strip())
-        
+             
                      
 #generation of suggeestions
     #interface.write_text(f"DEBUG kind={kind!r}, num_args={num_args!r}, form={form!r}, correspondances={correspondances!r}, displayed_name={displayed_name!r}\n")
-    for correspondance in correspondances:
-        #tokens= nltk.word_tokenize(correspondance)
-        tags= tag_and_lemmatize(correspondance, source_language)
+    if correspondances:
+        for correspondance in correspondances:
+            #tokens= nltk.word_tokenize(correspondance)
+            tags= tag_and_lemmatize(correspondance, source_language)
 
-        converted=[]
-        for word, pos, lemma in tags:
-            #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
-            #if override:
-                #tag=override
-            #else:
-            tag= UPOS_MAP.get(pos, None)
-            if tag is None:
+            converted=[]
+            for word, pos, lemma in tags:
+                #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
+                #if override:
+                    #tag=override
+                #else:
+                tag= UPOS_MAP.get(pos, None)
+                if tag is None:
+                    continue
+                converted.append((lemma, tag))   
+
+            if kind=="symdecl":
+                words=" ".join (f"{w}{t}" for w, t in converted).strip()
+                if tags and tags[-1][1]=="ADP":
+                    suggestion=f"{words}{tags[-1][0]} ?2"
+                else: 
+                    suggestion=f"?1 {words}"
+                    suggestion2=f"{words} ?1"
+                if suggestion.strip() and suggestion.strip() not in suggestions:
+                    suggestions.append(suggestion.strip())
+                    suggestions.append(suggestion2.strip())
                 continue
-            converted.append((lemma, tag))   
 
-        suggestion= ""
-        if num_args==1 and form:
-            #pos= form.find('{#1}')
-            if (form.startswith('{#1}') or form.startswith('#1')):
-                suggestion += "?1"
-                for word,tag in converted:
-                    suggestion += f' {word }{tag}'       
-                suggestions.append(suggestion.strip())
-            elif (form.endswith('{#1}') or form.endswith('#1')):
-                for word,tag in converted:
-                    suggestion += f'{word }{tag} '
-                if match_name:
-                    for word, pos_name, lemma in tags_name:
-                        if pos_name in ("ADP", "SCONJ"): 
-                            suggestion+= f'{word} '
-                else:
-                    suggestion+= " " +prep+ " "
-                suggestion+="?1"
-            if suggestion not in suggestions:
-                suggestions.append(suggestion.strip())
-
-        elif num_args== 2 and form:
-            position1 = form.find ("#1")
-            if position1==-1: 
-                position1= form.find("{#1}")
-            position2= form.find("#2")
-            if position2== -1:
-                position2= form.find("{#2}")
-
-            args_in_order= position2==-1 or position1==-1 or position1 < position2
-
-            if args_in_order:
-                suggestion= ""
-                for word, tag in converted:
-                    suggestion += f"{word}{tag} "
-
-                if match_name: 
-                    for word, pos_name, lemma in tags_name:
-                        if pos_name in ("ADP", "SCONJ"):
-                            suggestion+= f"{word} "
-                elif prep:
-                    suggestion+= prep + " "
-                suggestion+='?2'
-            else: 
-                suggestion = "?2"
-                for word, tag, in converted:
-                    suggestion += f"{word}{tag} "
-
-                if match_name:
-                    for word, pos_name, lemma in tags_name:
-                        if pos_name in ("ADP", "SCONJ"):
-                            suggestion+= f"{word} "
-                elif prep:
-                    suggestion+= prep + " "
-                #suggestion+= "?1"
-            if suggestion not in suggestions:
-                suggestions.append(suggestion.strip())
-
-        elif num_args==3 and form:
             suggestion= ""
-            for word,tag in converted:
-                suggestion+= f'{word }{tag} '
-            suggestion += "from ?2 to ?3"
-            if suggestion.strip() and suggestion.strip() not in suggestions:
-                suggestions.append(suggestion.strip())
+            if num_args==1 and form:
+                #pos= form.find('{#1}')
+                if (form.startswith('{#1}') or form.startswith('#1')):
+                    suggestion += "?1"
+                    for word,tag in converted:
+                        suggestion += f' {word }{tag}'       
+                    suggestions.append(suggestion.strip())
+                elif (form.endswith('{#1}') or form.endswith('#1')):
+                    for word,tag in converted:
+                        suggestion += f'{word }{tag} '
+                    if match_name:
+                        for word, pos_name, lemma in tags_name:
+                            if pos_name in ("ADP", "SCONJ"): 
+                                suggestion+= f'{word} '
+                    else:
+                        suggestion+= " " +prep+ " "
+                    suggestion+="?1"
+                if suggestion not in suggestions:
+                    suggestions.append(suggestion.strip())
+
+            elif num_args== 2 and form:
+                position1 = form.find ("#1")
+                if position1==-1: 
+                    position1= form.find("{#1}")
+                position2= form.find("#2")
+                if position2== -1:
+                    position2= form.find("{#2}")
+
+                args_in_order= position2==-1 or position1==-1 or position1 < position2
+
+                if args_in_order:
+                    suggestion= ""
+                    for word, tag in converted:
+                        suggestion += f"{word}{tag} "
+
+                    if match_name: 
+                        for word, pos_name, lemma in tags_name:
+                            if pos_name in ("ADP", "SCONJ"):
+                                suggestion+= f"{word} "
+                    elif prep:
+                        suggestion+= prep + " "
+                    suggestion+='?2'
+                else: 
+                    suggestion = "?2"
+                    for word, tag, in converted:
+                        suggestion += f"{word}{tag} "
+
+                    if match_name:
+                        for word, pos_name, lemma in tags_name:
+                            if pos_name in ("ADP", "SCONJ"):
+                                suggestion+= f"{word} "
+                    elif prep:
+                        suggestion+= prep + " "
+                    #suggestion+= "?1"
+                if suggestion not in suggestions:
+                    suggestions.append(suggestion.strip())
+
+            elif num_args==3 and form:
+                suggestion= ""
+                for word,tag in converted:
+                    suggestion+= f'{word }{tag} '
+                suggestion += "from ?2 to ?3"
+                if suggestion.strip() and suggestion.strip() not in suggestions:
+                    suggestions.append(suggestion.strip())
+    else:
+        if kind== "symdecl":
+            if displayed_name:
+                tags_name= tag_and_lemmatize(displayed_name, language)
+                prep=None
+                last_word=displayed_name.split()[-1].lower() if displayed_name.split() else ""
+                if last_word in prepositions:
+                    prep=displayed_name.split()[-1]
+    
+                converted=[]
+    
+                #if not prep:
+                for word, pos, lemma in tags_name:
+                        #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
+                        #if override:
+                            #tag=override
+                        #else:
+                    tag= UPOS_MAP.get(pos, None)
+                    if tag is None:
+                        continue
+                    converted.append((lemma, tag))
+    
+                if not prep:
+                    suggestion=""
+                    #suggestion 1
+                    suggestion += "?1"
+                    for word,tag in converted:
+                        suggestion += f' {word }{tag}'       
+                    suggestions.append(suggestion.strip())
+    
+                    #suggestion 2
+                    suggestion=""
+                    for word,tag in converted:
+                        suggestion += f'{word }{tag} '
+                    suggestion+="?1" 
+                    if suggestion not in suggestions:
+                        suggestions.append(suggestion.strip())
+    
+                else:
+                    suggestion= ""
+                    for word, tag in converted:
+                        suggestion += f"{word}{tag} "
+                    suggestion+= prep + ' ?2'
+                    if suggestion not in suggestions:
+                        suggestions.append(suggestion.strip())
+
     seen=set()
     deduped=[]
     for s in suggestions:
@@ -521,6 +531,8 @@ class AddVerbalizationCommand(Command):
         return [SubstitutionOutcome(new_verbalization, self.insert_position, self.insert_position)]
 
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\divgroup.en.tex"
+
+#  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\arithmetics\source\mod\divisor.en.tex"
 
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\ai-agents\source\mod\goal-based-agent.en.tex"
 
