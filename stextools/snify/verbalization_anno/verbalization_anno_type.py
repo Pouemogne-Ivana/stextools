@@ -255,14 +255,13 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
             if kind=="symdecl":
                 words=" ".join (f"{w}{t}" for w, t in converted).strip()
                 if tags and tags[-1][1]=="ADP":
-                    suggestion=f"{words}{tags[-1][0]} ?2"
+                    new_suggestions=[f"{words} {tags[-1][0]} ?2"]
                 else: 
-                    suggestion=f"?1 {words}"
-                    suggestion2=f"{words} ?1"
-                if suggestion.strip() and suggestion.strip() not in suggestions:
-                    suggestions.append(suggestion.strip())
-                    suggestions.append(suggestion2.strip())
-                continue
+                    new_suggestions=[f"?1 {words}",f"{words} ?1"]
+                for sug in new_suggestions:
+                    if sug.strip() and sug.strip() not in suggestions:
+                        suggestions.append(sug.strip())
+                    continue
 
             suggestion= ""
             if num_args==1 and form:
@@ -537,8 +536,6 @@ class AddVerbalizationCommand(Command):
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\ai-agents\source\mod\goal-based-agent.en.tex"
 
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\sets\source\mod\subsupset.en.tex"
-
-#  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\ai-agents\source\mod\Example.en.tex"
 
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\ai-agents\source\mod\model-based-agent.en.tex"
 class DeleteVerbalizationCommand(Command):
