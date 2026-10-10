@@ -40,6 +40,9 @@ from stextools.utils.json_iter import json_iter
 
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\inverse.de.tex"
 
+# python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\analysis\source\mod\asymptoticdensity.en.tex"
+
+# python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\analysis\source\mod\asymptoticdensity.de.tex"
 
 # add
 original_get_content= Document.get_content
@@ -56,7 +59,14 @@ UPOS_MAP: dict[str, dict[str, Optional[str]]] = {"ADP": None, "ADJ": ":A", "ADV"
 Language_prepositions: dict[str, list[str]]= {"en": ["for", "from", "at", "of", "to","with", "on",], "de":["für", "von", "bei", "zu", "mit","auf"],}
 
 #POS_OVERRIDES: dict[str, dict[str, str]]={"en":{"contains":":V","equals": ":V","extends": ":V",},"de":{},}
-
+POS_FIXES = {
+    "en": {
+        "left": ("ADJ", "left"),
+        "right": ("ADJ", "right"),
+        "set": ("NOUN", "set"),
+    },
+    "de": {},
+}
 #stanza.download('en')
 #stanza.download('de')
 Stanza_lang_codes: dict[str, str]={"en":"en", "de":"de",}
@@ -72,14 +82,83 @@ def tag_and_lemmatize(text:str, language:str)->list[tuple[str,str,str]]:
     try:
         nlp=get_stanza_pipeline(language)
         doc=nlp(text)
-        return [(word.text, word.upos, word.lemma) for sent in doc.sentences for word in sent.words]
+        words=[(w.text, w.upos, w.lemma) for sent in doc.sentences for w in sent.words]
+        merged,i=[], 0
+        while i<len(words):
+            word, pos, lemma=words[i]
+            while i+2<len(words) and words[i+1][0]=="-":
+                word=f"{word}-{words[i+2][0]}"
+                lemma=f"{lemma} {words[i+2][2]}"
+                pos="ADJ" if words[i+2][1] in ("VERB", "ADJ") else words[i+2][1]
+                i+=2
+            merged.append((word, pos, lemma))
+            i+=1
+        fixes = POS_FIXES.get(language, {})
+        return [(w, *fixes.get(w.lower(),(p, l))) for w, p, l in merged]
+        #return [(word.text, word.upos, word.lemma) for sent in doc.sentences for word in sent.words]
     except Exception as e:
-        interface.write_text(
-            f"\n no Stanza pipeline"
-        )
+        #interface.write_text(f"\n no Stanza pipeline")
         tags=nltk.pos_tag(nltk.word_tokenize(text))
         return[(word, pos, word) for word, pos in tags]
+    
+def auto_tag(text:str, language:str)->str:
+    out,run=[], []
+    def flush():
+        if not run:
+            return
+        tags=tag_phrase(" ".join(run), language)
+        if len(tags)==len(run):
+            for word, (_,pos, lemma) in zip (run, tags):
+                tag=UPOS_MAP.get(pos)
+                out.append(f"{lemma}{tag}" if tag else word)
+        else:
+            out.extend(run)
+        run.clear()
+    for tok in text.split():
+        if tok.startswith("?") or ":" in tok:
+            flush()
+            out.append(tok)
+        else:
+            run.append(tok)
+    flush()
+    return " ".join(out)
 
+        
+def tag_phrase(text: str, language: str):
+    tags=tag_and_lemmatize(text,language)
+    if language!="en" or len (tags)<2:
+        return tags
+    if tags[-1][1] in ("NOUN", "ADJ"):
+        with_det=tag_and_lemmatize(f"{text}",language)
+        if len(with_det)==len(tags)+1 and with_det[0][0].lower()=="the":
+            return with_det
+    return tags
+
+def parse_args(options:str)-> int:
+    m=re.search(r'args=([A-Za-z0-9]+)', options)
+    if not m:
+        return 0
+    val=m.group(1)
+    return int (val) if val.isdigit() else len(val)
+def formel_slots(form:str)->list[int]:
+    slots=[]
+    for m in re.finditer(r'#(\d)', form):
+        n = int(m.group(1))
+        if n not in slots:
+            slots.append(n)
+    return slots
+
+def slot_variants(words:str, num_args:int, form:str)-> list[str]:
+    if num_args==0:
+        return[words]
+    slots=formel_slots(form) or list(range(1, num_args+1))
+    rest=" ".join(f"?{n}" for n in slots if n !=1)
+    if not rest:
+    #if num_args==1:
+       return [f"?1 {words}", f"{words} ?1"]
+    
+    return[f"{words} {rest}"]
+       
 
 @functools.cache
 def get_stex_catalogs() -> dict[str, LocalFlamsCatalog]:
@@ -124,103 +203,9 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
     match_name= None
     tags_name: list[tuple[str, str]] = []
     suggestions: list[str]= []
-    if kind=="definiendum":
-        match=re.search(r'\\definiendum\{([^}]*)\}\{([^}]*)\}',document, re.DOTALL)
-        match_name=re.sub(r'\s+', ' ', match.group(1)).strip()
-        
-        if displayed_name:
-            #tokens_name= nltk.word_tokenize(displayed_name)
-            tags_name=tag_and_lemmatize(displayed_name, language)
-            
-            converted=[]
-            for word, pos, lemma in tags_name:
-                #override=POS_OVERRIDES.get(language, {}).get(word.lower())
-                #if override:
-                    #tag=override
-                #else:
-                tag= UPOS_MAP.get(pos, None)
-                if tag is None:
-                    continue
-                converted.append((lemma, tag))  
-            
-            if form and form.strip():
-                if num_args<=1:
-                    suggestion=""
-                    #pos= form.find('{#1}')
-                    if (form.startswith('{#1}') or form.startswith('#1')):
-                        suggestion += "?1"
-                        for word,tag in converted:
-                            suggestion += f' {word }{tag}'       
-                        #suggestions.append(suggestion.strip())
-                    elif (form.endswith('{#1}') or form.endswith('#1')):
-                        for word,tag in converted:
-                            suggestion += f'{word }{tag} '
-                        if prep:
-                            suggestion+=prep+ " "
-                        suggestion+="?1"
-                    if suggestion not in suggestions:
-                        suggestions.append(suggestion.strip())
-
-                if num_args==2:
-                    position1 = form.find ("#1")
-                    if position1==-1: 
-                        position1= form.find("{#1}")
-                    position2= form.find("#2")
-                    if position2== -1:
-                        position2= form.find("{#2}")
-
-                    args_in_order= position2==-1 or position1==-1 or position1 < position2
-
-                    if args_in_order:
-                        suggestion= ""
-                        for word, tag in converted:
-                            suggestion += f"{word}{tag} "
-
-                        if prep:
-                            suggestion+= prep + " "
-                        suggestion+='?2'
-                    else: 
-                        suggestion = "?2"
-                        for word, tag in converted:
-                            suggestion += f"{word}{tag} "
-                        if prep:
-                            suggestion+= prep + " "
-                        #suggestion+= "?1"
-                    if suggestion not in suggestions:
-                        suggestions.append(suggestion.strip())
-                elif num_args==3:
-                    suggestion= ""
-                    for word,tag in converted:
-                        suggestion+= f'{word }{tag} '
-                    suggestion += "from ?2 to ?3"
-                    if suggestion.strip() and suggestion.strip() not in suggestions:
-                        suggestions.append(suggestion.strip())
-            if not (form and form.strip()):
-                #suggestion 1    
-                suggestion = "?1"
-                for word,tag in converted:
-                    suggestion += f' {word }{tag}'       
-                suggestions.append(suggestion.strip())
-
-                #suggestion 2
-                suggestion=""
-                for word,tag in converted:
-                    suggestion += f'{word }{tag} '
-                
-                for word, pos_name,lemma in tags_name:
-                    if pos_name in ("ADP", "SCONJ") : 
-                        suggestion+= f'{word} '
-                        break
-                if prep and not any(pos_name in ("ADP", "SCONJ") for _, pos_name, _ in tags_name ):
-                        suggestion+= "" +prep+ ""
-                suggestion+="?1"
-
-                if suggestion.strip() and suggestion.strip() not in suggestions:
-                    suggestions.append(suggestion.strip())
-
          
 #just to have the prepositions
-    elif kind== "symdef" or kind=="symdecl":
+    if kind== "symdef" or kind=="symdecl":
         match_name= re.search(r"name=([^,\]]+)", line)
         if match_name:
             #tokens_name= nltk.word_tokenize(match_name.group(1))
@@ -232,15 +217,19 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
             last_word= word_in_symbol[-1].lower() if word_in_symbol else ""
             if last_word in prepositions:
                 prep=last_word
-             
-                     
+                                  
 #generation of suggeestions
     #interface.write_text(f"DEBUG kind={kind!r}, num_args={num_args!r}, form={form!r}, correspondances={correspondances!r}, displayed_name={displayed_name!r}\n")
     if correspondances:
+        print("correspondances:", correspondances)
         for correspondance in correspondances:
             #tokens= nltk.word_tokenize(correspondance)
-            tags= tag_and_lemmatize(correspondance, source_language)
-
+            if source_language == "en" and len(correspondance.split()) == 1:
+                tags = tag_and_lemmatize(f"the {correspondance}", source_language)[1:]
+            else:
+                tags = tag_phrase(correspondance, source_language)
+            #tags = [(w, *POS_FIXES.get(source_language, {}).get(w.lower(), (p, l))) for w, p, l in tags]
+            print("tags:", tags)
             converted=[]
             for word, pos, lemma in tags:
                 #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
@@ -257,21 +246,17 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                 if tags and tags[-1][1]=="ADP":
                     new_suggestions=[f"{words} {tags[-1][0]} ?2"]
                 else: 
-                    new_suggestions=[f"?1 {words}",f"{words} ?1"]
+                    new_suggestions=[f"{words} ?1", f"?1 {words}"]
                 for sug in new_suggestions:
                     if sug.strip() and sug.strip() not in suggestions:
                         suggestions.append(sug.strip())
-                    continue
-
+                continue
+            useful_before = sum(1 for s in suggestions if s.strip())
             suggestion= ""
             if num_args==1 and form:
                 #pos= form.find('{#1}')
-                if (form.startswith('{#1}') or form.startswith('#1')):
-                    suggestion += "?1"
-                    for word,tag in converted:
-                        suggestion += f' {word }{tag}'       
-                    suggestions.append(suggestion.strip())
-                elif (form.endswith('{#1}') or form.endswith('#1')):
+                
+                if (form.endswith('{#1}') or form.endswith('#1')):
                     for word,tag in converted:
                         suggestion += f'{word }{tag} '
                     if match_name:
@@ -281,6 +266,23 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     else:
                         suggestion+= " " +prep+ " "
                     suggestion+="?1"
+                elif (form.startswith('{#1}') or form.startswith('#1')):
+                    suggestion += "?1"
+                    for word,tag in converted:
+                        suggestion += f' {word }{tag}'       
+                        suggestions.append(suggestion.strip())
+
+                else:
+                    for word,tag in converted:
+                        suggestion += f'{word }{tag} '
+                    if match_name:
+                        for word, pos_name, lemma in tags_name:
+                            if pos_name in ("ADP", "SCONJ"): 
+                                suggestion+= f'{word} '
+                    else:
+                        suggestion+= " " +prep+ " "
+                    suggestion+="?1"
+
                 if suggestion not in suggestions:
                     suggestions.append(suggestion.strip())
 
@@ -318,27 +320,140 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     elif prep:
                         suggestion+= prep + " "
                     #suggestion+= "?1"
+                #else:
+                 #   suggestion= ""
+                  #  for word,tag in converted:
+                   #     suggestion+= f'{word }{tag}'
+
+                        
                 if suggestion not in suggestions:
                     suggestions.append(suggestion.strip())
 
-            elif num_args==3 and form:
+            elif num_args>=3 and form:
                 suggestion= ""
                 for word,tag in converted:
                     suggestion+= f'{word }{tag} '
-                suggestion += "from ?2 to ?3"
+                suggestion += f"({", ".join(f"?{k}" for k in range (2, num_args +1))})"
                 if suggestion.strip() and suggestion.strip() not in suggestions:
                     suggestions.append(suggestion.strip())
-    else:
-        if kind== "symdecl":
+
+            if converted and not suggestion.strip():
+                words = " ".join(f"{w}{t}" for w, t in converted)
+                if kind =="definiendum" and num_args==0 and not form.strip():
+                    variants=[ f"{words} ?1", f"?1 {words}"]
+                else:
+                    variants=slot_variants(words, num_args, form)
+                for s in variants:
+                    if s not in suggestions:
+                        suggestions.append(s)
+
+    elif kind=="symdef" and not correspondances:
+        if displayed_name:
+            #tokens_name= nltk.word_tokenize(displayed_name)
+            readable=match_name.group(1).strip() if match_name else displayed_name
+            if readable:
+                tags_name=tag_phrase(readable, language)
+            
+            converted=[]
+            for word, pos, lemma in tags_name:
+                #override=POS_OVERRIDES.get(language, {}).get(word.lower())
+                #if override:
+                    #tag=override
+                #else:
+                tag= UPOS_MAP.get(pos, None)
+                if tag is None:
+                    continue
+                converted.append((lemma, tag))
+            if not converted:
+                return []  
+            
+            if form and form.strip():
+                if num_args<=1:
+                    suggestion=""
+                    #pos= form.find('{#1}')
+
+                    if (form.endswith('{#1}') or form.endswith('#1')):
+                        for word,tag in converted:
+                            suggestion += f'{word }{tag} '
+                        if prep:
+                            suggestion+=prep+ " "
+                        suggestion+="?1"
+                    elif (form.startswith('{#1}') or form.startswith('#1')):
+                        suggestion += "?1"
+                        for word,tag in converted:
+                            suggestion += f' {word }{tag}'       
+                            #suggestions.append(suggestion.strip())
+                    if suggestion not in suggestions:
+                        suggestions.append(suggestion.strip())
+
+                if num_args==2:
+                    position1 = form.find ("#1")
+                    if position1==-1: 
+                        position1= form.find("{#1}")
+                    position2= form.find("#2")
+                    if position2== -1:
+                        position2= form.find("{#2}")
+
+                    args_in_order= position2==-1 or position1==-1 or position1 < position2
+
+                    if args_in_order:
+                        suggestion= ""
+                        for word, tag in converted:
+                            suggestion += f"{word}{tag} "
+
+                        if prep:
+                            suggestion+= prep + " "
+                        suggestion+='?2'
+                    else: 
+                        suggestion = "?2"
+                        for word, tag in converted:
+                            suggestion += f"{word}{tag} "
+                        if prep:
+                            suggestion+= prep + " "
+                        #suggestion+= "?1"
+                    if suggestion not in suggestions:
+                        suggestions.append(suggestion.strip())
+                elif num_args==3:
+                    suggestion= ""
+                    for word,tag in converted:
+                        suggestion+= f'{word }{tag} '
+                    suggestion += f"({", ".join(f"?{k}" for k in range (2, num_args +1))})"
+                    if suggestion.strip() and suggestion.strip() not in suggestions:
+                        suggestions.append(suggestion.strip())
+            if not (form and form.strip()):
+                #suggestion 1    
+                suggestion = "?1"
+                for word,tag in converted:
+                    suggestion += f' {word }{tag}'       
+                suggestions.append(suggestion.strip())
+
+                #suggestion 2
+                suggestion=""
+                for word,tag in converted:
+                    suggestion += f'{word }{tag} '
+                
+                for word, pos_name,lemma in tags_name:
+                    if pos_name in ("ADP", "SCONJ") : 
+                        suggestion+= f'{word} '
+                        break
+                if prep and not any(pos_name in ("ADP", "SCONJ") for _, pos_name, _ in tags_name ):
+                        suggestion+= "" +prep+ ""
+                suggestion+="?1"
+
+                if suggestion.strip() and suggestion.strip() not in suggestions:
+                    suggestions.append(suggestion.strip())
+
+    elif kind== "symdecl":
+        
             if displayed_name:
-                tags_name= tag_and_lemmatize(displayed_name, language)
+                tags_name= tag_phrase(displayed_name, language)
                 prep=None
                 last_word=displayed_name.split()[-1].lower() if displayed_name.split() else ""
                 if last_word in prepositions:
                     prep=displayed_name.split()[-1]
     
                 converted=[]
-    
+                
                 #if not prep:
                 for word, pos, lemma in tags_name:
                         #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
@@ -349,20 +464,24 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     if tag is None:
                         continue
                     converted.append((lemma, tag))
+                if not converted:
+                        return []
     
                 if not prep:
                     suggestion=""
                     #suggestion 1
-                    suggestion += "?1"
+                    
                     for word,tag in converted:
-                        suggestion += f' {word }{tag}'       
+                        suggestion += f' {word }{tag}'
+                    suggestion += "?1"       
                     suggestions.append(suggestion.strip())
     
                     #suggestion 2
                     suggestion=""
+                    suggestion+="?1"
                     for word,tag in converted:
                         suggestion += f'{word }{tag} '
-                    suggestion+="?1" 
+
                     if suggestion not in suggestions:
                         suggestions.append(suggestion.strip())
     
@@ -373,6 +492,105 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                     suggestion+= prep + ' ?2'
                     if suggestion not in suggestions:
                         suggestions.append(suggestion.strip())
+
+
+    elif kind=="definiendum":
+        match=re.search(r'\\definiendum\{([^}]*)\}\{([^}]*)\}',document, re.DOTALL)
+        match_name=re.sub(r'\s+', ' ', match.group(1)).strip()
+        
+        if displayed_name:
+            #tokens_name= nltk.word_tokenize(displayed_name)
+            tags_name=tag_and_lemmatize(displayed_name, language)
+            
+            converted=[]
+            for word, pos, lemma in tags_name:
+                #override=POS_OVERRIDES.get(language, {}).get(word.lower())
+                #if override:
+                    #tag=override
+                #else:
+                tag= UPOS_MAP.get(pos, None)
+                if tag is None:
+                    continue
+                converted.append((lemma, tag))
+            if not converted:
+                    return []  
+            
+            if form and form.strip():
+                if num_args<=1:
+                    suggestion=""
+                    #pos= form.find('{#1}')
+                          
+                        #suggestions.append(suggestion.strip())
+                    if (form.endswith('{#1}') or form.endswith('#1')):
+                        for word,tag in converted:
+                            suggestion += f'{word }{tag} '
+                        if prep:
+                            suggestion+=prep+ " "
+                        suggestion+="?1"
+                    elif (form.startswith('{#1}') or form.startswith('#1')):
+                        suggestion += "?1"
+                        for word,tag in converted:
+                            suggestion += f' {word }{tag}' 
+                    if suggestion not in suggestions:
+                        suggestions.append(suggestion.strip())
+
+                if num_args==2:
+                    position1 = form.find ("#1")
+                    if position1==-1: 
+                        position1= form.find("{#1}")
+                    position2= form.find("#2")
+                    if position2== -1:
+                        position2= form.find("{#2}")
+
+                    args_in_order= position2==-1 or position1==-1 or position1 < position2
+
+                    if args_in_order:
+                        suggestion= ""
+                        for word, tag in converted:
+                            suggestion += f"{word}{tag} "
+
+                        if prep:
+                            suggestion+= prep + " "
+                        suggestion+='?2'
+                    else: 
+                        suggestion = "?2"
+                        for word, tag in converted:
+                            suggestion += f"{word}{tag} "
+                        if prep:
+                            suggestion+= prep + " "
+                        #suggestion+= "?1"
+                    if suggestion not in suggestions:
+                        suggestions.append(suggestion.strip())
+                elif num_args>=3:
+                    suggestion= ""
+                    for word,tag in converted:
+                        suggestion+= f'{word }{tag} '
+                    suggestion += f"{", ".join(f"?{k}" for k in range (2, num_args +1))}"
+                    if suggestion.strip() and suggestion.strip() not in suggestions:
+                        suggestions.append(suggestion.strip())
+            if not (form and form.strip()):
+                #suggestion 1    
+                
+                suggestion=""
+                for word,tag in converted:
+                    suggestion += f'{word }{tag} '
+                
+                for word, pos_name,lemma in tags_name:
+                    if pos_name in ("ADP", "SCONJ") : 
+                        suggestion+= f'{word} '
+                        break
+                if prep and not any(pos_name in ("ADP", "SCONJ") for _, pos_name, _ in tags_name ):
+                        suggestion+= "" +prep+ ""
+                suggestion+="?1"
+
+                #suggestion 2
+                suggestion = "?1"
+                for word,tag in converted:
+                    suggestion += f' {word }{tag}'       
+                suggestions.append(suggestion.strip())
+
+                if suggestion.strip() and suggestion.strip() not in suggestions:
+                    suggestions.append(suggestion.strip())
 
     seen=set()
     deduped=[]
@@ -414,30 +632,49 @@ class AddVerbalizationCommand(Command):
         ))
 
     def specifications(self)-> Optional[str]:
+        for i, s in enumerate(self.suggestions,start=1):
+            interface.write_text(f"  {i}) {s}\n")
+        interface.write_text("verb_pattern [1]: " if self.suggestions else "pattern: ")
+        answer= interface.get_input().strip()
+
+        if not answer:
+            return self.suggestions[0] if self.suggestions else None
+        if answer.isdigit():
+            k=int(answer)
+            if 1<=k <= len(self.suggestions):
+                return self.suggestions[k-1]
+            interface.write_text(" no such a suggestion\n")
+            return None
+        custom= auto_tag(re.sub(r'#(\d+)', r'?\1', answer), self.lang)
+        #missing=[k for k in range(2, self.num_args+1) if f"?{k}" not in custom]
+        #if missing:
+         #   interface.write_text(f"note: missing {', '.join('?' +str(k) for k in missing)}\n")
+        interface.write_text(f" -> {custom}\n")
+        return custom
+        """
         if self.suggestions:
             interface.write_text("\n You can choose a verbalization or write your own:\n")
             for i, suggestion in enumerate(self.suggestions, start=1):
                 interface.write_text(f"{i}) {suggestion}\n")
-
+            interface.write_text("verbalization_pattern (Enter=1, number, or your own text): ")
             answer= interface.get_input()
 
-            try:
+            if answer =="":
+                return self.suggestions[0]
+            if answer.isdigit():
                 choice= int(answer)
-            except ValueError: #the user has typed his own verbalization directly
-                return answer
+            #except ValueError: #the user has typed his own verbalization directly
 
-            if not (1<= choice<=len(self.suggestions)):
+                if  (1<= choice<=len(self.suggestions)):
+                    return self.suggestions[choice-1]
                 interface.write_text("Invalid suggestion number.\n")
                 return None
+            return answer
 
-            specifications= self.suggestions[choice-1]
-            interface.write_text(f"\n Selected suggestion:\n{specifications}\n" "press enter to accept or type a modified version:\n")
-            modified= interface.get_input().strip()
-            return modified if modified else specifications
-        
-        interface.write_text("\n Please enter the verbalization:\n")
+            
+        interface.write_text(f"\nverbalization_pattern: \n")
         return interface.get_input()
-
+        """
 
     def annotation_type( self, specifications:str)-> Optional[str]:
         contains_subject=re.search(r'\?1\b', specifications)
@@ -455,34 +692,37 @@ class AddVerbalizationCommand(Command):
             num_arguments=num_arguments+1
             annotation_type= letter.upper() +str(num_arguments)
 
-        interface.write_text(f"Annotation type [{annotation_type}] (Enter to accept): ")
+        interface.write_text(f"type ({annotation_type}): ")
         answer = interface.get_input()
         return answer if answer else annotation_type
 
-    def arg_types(self, num_arguments: int)-> str:
+    def arg_types(self, specifications:str)-> str:
         args= ""
+        count= max({int (n) for n in re.findall(r'[#?](\d+)', specifications)}, default=0)
+        if count ==0:
+            count=count+1
         #doc_language= get_document_language(self.document_content)
         if self.lang=="en":
-            while num_arguments >0:
-                interface.write_text("\n Argument types (c/d)? Press enter to skip:\n")
+            while count >0:
+                interface.write_text(f"\nArgument types ({count})(c/d)? Enter= skip: \n")
                 entered= interface.get_input().strip()
                 if entered== "":
                     break
-                if len( entered)== num_arguments and all(ch in "cd" for ch in entered):
+                if len( entered)== count and all(ch in "cd" for ch in entered):
                     args= entered
                     break
-                interface.write_text (f"Please enter exactly {num_arguments} characters consisting of c and /or d.\n")
+                interface.write_text (f"Please enter exactly {count} characters consisting of c and /or d.\n")
             #return args
         elif self.lang=="de":
-            while num_arguments >0:
-                interface.write_text("\n Argument types (k/d)? Press enter to skip:\n")
+            while count >0:
+                interface.write_text(f"\nArgument types ({count})(k/d)? Enter= skip: \n")
                 entered= interface.get_input().strip()
                 if entered== "":
                     break
-                if len( entered)== num_arguments and all(ch in "kd" for ch in entered):
+                if len( entered)== count and all(ch in "kd" for ch in entered):
                     args= entered
                     break
-                interface.write_text (f"Please enter exactly {num_arguments} characters consisting of k and /or d.\n")
+                interface.write_text (f"Please enter exactly {count} characters consisting of k and /or d.\n")
         return args
 
 
@@ -490,9 +730,11 @@ class AddVerbalizationCommand(Command):
         """ this is called when the user presses 'a' """
         
         specifications= self.specifications()
+        #count= max({int (n) for n in re.findall(r'[#?](\d+)', specifications)}, default=0)
         if not specifications:
             return []
-
+        #if count == 1 and not re.search(r'[#?]1\b', specifications):
+        #    specifications = f"{specifications} ?1"
         annotation_type= self.annotation_type(specifications)
         if annotation_type is None:
             return []
@@ -504,23 +746,23 @@ class AddVerbalizationCommand(Command):
             verbalization_pattern=re.sub(r'\s*\?1\b\s*', ' ', verbalization_pattern).strip()
         spec= re.sub(r'[#?]\d+', ' ', specifications)
         spec= re.sub(r':[A-Za-z]+', ' ', spec)
-        words= spec.split()
+        words= re.findall(r"\w+", spec)
         variant = "-".join(words)
 
-        args= self.arg_types(num_arguments)
+        args= self.arg_types(specifications)
         optional_parts=[variant]
         if args:
             optional_parts.append(f"args={args}")
         optional_parts.append("subject=1")
         optional_parts.append(f"type={annotation_type}")
-        optional=f"[{', '.join(optional_parts)}]"
+        optional=f"[{','.join(optional_parts)}]"
         
 
         #optional= f"[{variant}, args= {args}]" if args else f"[{variant}]"
 
         new_verbalization= (f'\\verbalization{{{self.symbol_name}}}{optional}{{{verbalization_pattern}}}\n')
         if new_verbalization in self.document_content:
-            interface.write_text( "this verbalization already exist.\n")
+            interface.write_text("this verbalization already exist.\n")
             return []
 
 #in the case that the verbalization was added before the position of the cursor
@@ -538,6 +780,8 @@ class AddVerbalizationCommand(Command):
 #  python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\sets\source\mod\subsupset.en.tex"
 
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\ai-agents\source\mod\model-based-agent.en.tex"
+
+# python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\sets\source\mod\set.en.tex"
 class DeleteVerbalizationCommand(Command):
 
     def __init__(self, position: int, symbol_name:str, document_content:str, snify_state):
@@ -598,7 +842,7 @@ class MarkCompletedCommand(Command):
         )) 
 
     def execute(self, call:str)-> list[CommandOutcome]:
-        marker=f"%verbalization-complete: {self.symbol_name}\n"
+        marker=f"%..\n"
         #insert_position=len(self.document_content)
         return [SubstitutionOutcome(marker, self.insert_position, self.insert_position)]   
 class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
@@ -738,9 +982,9 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             )
             if symdef_match:
                 symdef_line= symdef_match.group(0)
-                match_args= re.search(r'args=(\d+)', symdef_line)
-                if match_args:
-                    num_args= int(match_args.group(1))
+                num_args= parse_args (symdef_line)
+                #if match_args:
+                 #   num_args= int(match_args.group(1))
 
                 formula_match= re.search(r'\\symdef\{[^}]+\}(?:\[[^\]]*\])?\{(.*)\}$', symdef_line,)
 
@@ -797,7 +1041,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             else:
                 symbol_name=displayed_name
 
-            match_args= re.search(r'args=(\d+)', options)
+            num_args= parse_args(options)
 
             line_end= document_content.find("\n", position)
             if line_end==-1:
@@ -805,15 +1049,15 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             else:
                 current_line= document_content[position:line_end]
 
-            if match_args:
-                num_args= int(match_args.group(1))
+            #if match_args:
+             #   num_args= int(match_args.group(1))
 
             #formula_match= re.search(r'\\symdef?\{[^}]+\}(?:\[[^\]]*\])?\{(.*)\}$', remaining_document)
             #if formula_match:
              #
              #   form= formula_match.group(1)
 
-            pattern = rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}\{{.*?\}}'
+            pattern = rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}'
             matches = list (re.finditer(pattern, document_content))
             if matches: 
                 verbalizations_end= document_content.find("\n", matches[-1].start())
@@ -848,7 +1092,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
             else:
                 current_line= document_content[position:line_end]
 
-            pattern = rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}\{{.*?\}}'
+            pattern = rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}'
             matches = list (re.finditer(pattern, document_content))
             #order the verbalizations if there are already existing verbalization for a symbol
             if matches: 
@@ -912,7 +1156,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
 
     def show_current_state(self):
         interface.clear()
-        interface.write_text('\nHELLO, I AM THE VERBALIZATION ASSISTANT\n')
+        interface.write_text('\nVERBALIZATION SYSTEM\n')
 
         document_content = self.snify_state.get_current_document().get_content()
         position = self.snify_state.cursor.in_doc_pos
@@ -929,14 +1173,14 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         kind= info["kind"]
         associated_kind=info.get("associated_kind")
     
-        if kind=="symdef":
-            interface.write_text('\nCurrent \\symdef:\n\n')
+        #if kind=="symdef":
+           # interface.write_text('\nCurrent \\symdef:\n\n')
             
-        elif kind=="symdecl":
-            interface.write_text('\nCurrent \\symdecl:\n\n')
+        #elif kind=="symdecl":
+         #   interface.write_text('\nCurrent \\symdecl:\n\n')
         
-        else:
-            interface.write_text('\nCurrent symbol:\n\n' )
+        #else:
+         #   interface.write_text('\nCurrent symbol:\n\n' )
         interface.show_code(document_content, format='sTeX')
         
 
@@ -944,11 +1188,11 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         pattern = rf'\\verbalization\{{{re.escape(symbol_name)}\}}\[.*?\]\{{.*?\}}'
         matches = list (re.finditer(pattern, document_content))
         if not matches:
-            interface.write_text(f'\nNo Verbalizations found for "{symbol_name}".\n'
+            interface.write_text(f'\nCurrent symbol: "{symbol_name}".\n'
                     )
             return []
         
-        interface.write_text(f'\n Existing verbalizations for "{symbol_name}": \n')
+        interface.write_text(f'\n Existing verbalizations for the current symbol "{symbol_name}": \n')
         
 
         for i, match in enumerate(matches, start =1):
