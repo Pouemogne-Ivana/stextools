@@ -624,7 +624,7 @@ class AddVerbalizationCommand(Command):
         #missing=[k for k in range(2, self.num_args+1) if f"?{k}" not in custom]
         #if missing:
          #   interface.write_text(f"note: missing {', '.join('?' +str(k) for k in missing)}\n")
-        interface.write_text(f" -> {custom}\n")
+        interface.write_text(f"-> {custom}\n")
         return custom
 
     def annotation_type( self, specifications:str)-> Optional[str]:
@@ -792,7 +792,7 @@ class MarkCompletedCommand(Command):
         )) 
 
     def execute(self, call:str)-> list[CommandOutcome]:
-        marker=f"%..\n"
+        marker=f"%..VC\n"
         #insert_position=len(self.document_content)
         return [SubstitutionOutcome(marker, self.insert_position, self.insert_position)]   
 class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
@@ -1059,7 +1059,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         return None
 
     def is_marked_complete ( self, document_content:str, symbol_name:str)->bool:
-        pattern=rf'%..'
+        pattern=rf'%..VC'
         return re.search(pattern, document_content, re.MULTILINE) is not None
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\algebraic.de.tex"
 
@@ -1157,7 +1157,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         #string = document_content[position:]
         info= self.extract_symbol_information(document_content, position)
         if info is None or self.is_marked_complete(document_content, info["symbol_name"]):
-            interface.write_text("\n ended verbalization.\n")
+            interface.write_text("\nended verbalization.\n")
             return CommandCollection(
                 f'snify:{self.name}',
                 [
