@@ -64,6 +64,7 @@ POS_FIXES = {
         "left": ("ADJ", "left"),
         "right": ("ADJ", "right"),
         "set": ("NOUN", "set"),
+        "inverse": ("NOUN","inverse"),
     },
     "de": {},
 }
@@ -97,7 +98,7 @@ def tag_and_lemmatize(text:str, language:str)->list[tuple[str,str,str]]:
         return [(w, *fixes.get(w.lower(),(p, l))) for w, p, l in merged]
         #return [(word.text, word.upos, word.lemma) for sent in doc.sentences for word in sent.words]
     except Exception as e:
-        #interface.write_text(f"\n no Stanza pipeline")
+        interface.write_text(f"\n no Stanza pipeline")
         tags=nltk.pos_tag(nltk.word_tokenize(text))
         return[(word, pos, word) for word, pos in tags]
     
@@ -165,32 +166,6 @@ def get_stex_catalogs() -> dict[str, LocalFlamsCatalog]:
     return local_flams_stex_catalogs()
 
 
-
-"""
-def pos_tag_for_language(tokens: list[str], language:str)-> list[tuple[str, str]]:
-    #tokenize and tag words for the given language
-    if language=="en":
-        return nltk.pos_tag(tokens) #because nltk works well with documents in english
-    try:
-        import spacy
-        model_name= {"de": "de_core_news_sm",
-                     "zhs": "zhs_core_news_sm",}.get(language)
-        if model_name is None:
-            raise OSError(f"no confingurated spaCy model for lang={language!r}")
-
-        nlp= get_spacy_pipeline(model_name)
-        Doc= nlp(" ".join(tokens))
-        return [(t.text, t.pos_) for t in Doc] # extract (word, tag) for each token
-    except Exception as e:
-        interface.write_text( f"\n no part of speech tagger available for "
-                             f"lang={language!r} ({e}); falling back to the english tagger, "
-                             f"results may be poor. \n")
-        return nltk.pos_tag(tokens)
-
-#def get_spacy_pipeline(model_name: str):
-    import spacy
-    return spacy.load( model_name)
-"""
 def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_name:str, num_args: int, form: Optional[str], source_language:str, language: str, displayed_name:str, document:str, source_document_path:str)-> list[str]:
     form= form or ""
     if not language:
@@ -253,7 +228,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
                 continue
             useful_before = sum(1 for s in suggestions if s.strip())
             suggestion= ""
-            if num_args==1 and form:
+            if num_args<=1 and form:
                 #pos= form.find('{#1}')
                 
                 if (form.endswith('{#1}') or form.endswith('#1')):
@@ -633,7 +608,7 @@ class AddVerbalizationCommand(Command):
 
     def specifications(self)-> Optional[str]:
         for i, s in enumerate(self.suggestions,start=1):
-            interface.write_text(f"  {i}) {s}\n")
+            interface.write_text(f" {i}) {s}\n")
         interface.write_text("verb_pattern [1]: " if self.suggestions else "pattern: ")
         answer= interface.get_input().strip()
 
@@ -643,7 +618,7 @@ class AddVerbalizationCommand(Command):
             k=int(answer)
             if 1<=k <= len(self.suggestions):
                 return self.suggestions[k-1]
-            interface.write_text(" no such a suggestion\n")
+            interface.write_text("no such a suggestion\n")
             return None
         custom= auto_tag(re.sub(r'#(\d+)', r'?\1', answer), self.lang)
         #missing=[k for k in range(2, self.num_args+1) if f"?{k}" not in custom]
@@ -651,36 +626,11 @@ class AddVerbalizationCommand(Command):
          #   interface.write_text(f"note: missing {', '.join('?' +str(k) for k in missing)}\n")
         interface.write_text(f" -> {custom}\n")
         return custom
-        """
-        if self.suggestions:
-            interface.write_text("\n You can choose a verbalization or write your own:\n")
-            for i, suggestion in enumerate(self.suggestions, start=1):
-                interface.write_text(f"{i}) {suggestion}\n")
-            interface.write_text("verbalization_pattern (Enter=1, number, or your own text): ")
-            answer= interface.get_input()
-
-            if answer =="":
-                return self.suggestions[0]
-            if answer.isdigit():
-                choice= int(answer)
-            #except ValueError: #the user has typed his own verbalization directly
-
-                if  (1<= choice<=len(self.suggestions)):
-                    return self.suggestions[choice-1]
-                interface.write_text("Invalid suggestion number.\n")
-                return None
-            return answer
-
-            
-        interface.write_text(f"\nverbalization_pattern: \n")
-        return interface.get_input()
-        """
 
     def annotation_type( self, specifications:str)-> Optional[str]:
         contains_subject=re.search(r'\?1\b', specifications)
         num_arguments= len(re.findall(r'[#?]\d+', specifications))
-        colon_pos = [i for i, char in enumerate(specifications)
-               if char==':']
+        colon_pos = [i for i, char in enumerate(specifications) if char==':']
         if not colon_pos:
             interface.write_text("No annotation tag found.\n")
             return None
@@ -1109,7 +1059,7 @@ class VerbalizationAnnoType(AnnoType[VerbalizationAnnoState]):
         return None
 
     def is_marked_complete ( self, document_content:str, symbol_name:str)->bool:
-        pattern=rf'%verbalization-complete:\s*{re.escape(symbol_name)}\s*$'
+        pattern=rf'%..'
         return re.search(pattern, document_content, re.MULTILINE) is not None
 # python -m stextools snify --mode=text,verbalizations "C:\Users\ivana\Desktop\MathHub\smglom\algebra\source\mod\algebraic.de.tex"
 
