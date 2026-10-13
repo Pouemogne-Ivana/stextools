@@ -196,7 +196,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
 #generation of suggeestions
     #interface.write_text(f"DEBUG kind={kind!r}, num_args={num_args!r}, form={form!r}, correspondances={correspondances!r}, displayed_name={displayed_name!r}\n")
     if correspondances:
-        print("correspondances:", correspondances)
+        #print("correspondances:", correspondances)
         for correspondance in correspondances:
             #tokens= nltk.word_tokenize(correspondance)
             if source_language == "en" and len(correspondance.split()) == 1:
@@ -204,7 +204,7 @@ def build_suggestions(correspondances: list[str], kind: str, line: str, symbol_n
             else:
                 tags = tag_phrase(correspondance, source_language)
             #tags = [(w, *POS_FIXES.get(source_language, {}).get(w.lower(), (p, l))) for w, p, l in tags]
-            print("tags:", tags)
+            #print("tags:", tags)
             converted=[]
             for word, pos, lemma in tags:
                 #override=POS_OVERRIDES.get(source_language, {}).get(word.lower())
